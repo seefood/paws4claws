@@ -1,4 +1,4 @@
-from paws import DEFAULT_ALLOWED_SERVICES, check_allowlist, validate_arg
+from paws import DEFAULT_ALLOWED_SERVICES, check_allowlist, check_file_io, validate_arg
 
 
 def test_plain_service_name():
@@ -82,3 +82,53 @@ def test_custom_allowlist():
     err = check_allowlist("ec2", custom)
     assert err is not None
     assert "ec2" in err
+
+
+def test_s3_to_s3_cp_allowed():
+    assert check_file_io(["s3", "cp", "s3://bucket/k1", "s3://bucket/k2"]) is None
+
+
+def test_s3_to_stdout_allowed():
+    assert check_file_io(["s3", "cp", "s3://bucket/key", "-"]) is None
+
+
+def test_s3_mv_s3_to_s3_allowed():
+    assert check_file_io(["s3", "mv", "s3://b/k1", "s3://b/k2"]) is None
+
+
+def test_s3_sync_s3_to_s3_allowed():
+    assert check_file_io(["s3", "sync", "s3://b/src/", "s3://b/dst/"]) is None
+
+
+def test_local_dest_blocked():
+    err = check_file_io(["s3", "cp", "s3://bucket/key", "/tmp/file"])
+    assert err is not None
+    assert "not supported in v1" in err
+
+
+def test_local_source_blocked():
+    err = check_file_io(["s3", "cp", "/tmp/file", "s3://bucket/key"])
+    assert err is not None
+    assert "not supported in v1" in err
+
+
+def test_local_sync_blocked():
+    err = check_file_io(["s3", "sync", "./local", "s3://bucket/prefix"])
+    assert err is not None
+
+
+def test_s3_ls_not_affected():
+    assert check_file_io(["s3", "ls", "s3://bucket/"]) is None
+
+
+def test_non_s3_service_not_affected():
+    assert check_file_io(["ec2", "cp", "/local/path"]) is None
+
+
+def test_flags_before_paths_skipped():
+    assert check_file_io(["s3", "cp", "--recursive", "s3://b/k1", "s3://b/k2"]) is None
+
+
+def test_too_few_args_is_fine():
+    assert check_file_io(["s3"]) is None
+    assert check_file_io([]) is None

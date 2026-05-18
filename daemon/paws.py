@@ -52,3 +52,19 @@ def check_allowlist(service: str, allowed: frozenset[str] | None) -> str | None:
     if service not in allowed:
         return f"paws: service '{service}' is not permitted"
     return None
+
+
+def check_file_io(args: list[str]) -> str | None:
+    """Return None if OK, error message if local file I/O detected."""
+    if len(args) < 2 or args[0] != "s3" or args[1] not in FILE_IO_SUBCOMMANDS:
+        return None
+    for arg in args[2:]:
+        if arg.startswith("--"):
+            continue
+        if not arg.startswith("s3://") and arg != "-":
+            return (
+                "paws: local file I/O is not supported in v1. "
+                "Only S3-to-S3 and S3-to-stdout transfers are allowed. "
+                "See https://github.com/seefood/paws4claws for the roadmap."
+            )
+    return None
