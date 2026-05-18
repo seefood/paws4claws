@@ -1,3 +1,8 @@
+[project]
+name = "paws4claws"
+version = "0.1.0"
+requires-python = ">=3.12"
+
 [tool.ruff]
 target-version = "py312"
 
@@ -17,3 +22,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["daemon"]
