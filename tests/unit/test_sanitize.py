@@ -1,4 +1,4 @@
-from paws import validate_arg
+from paws import DEFAULT_ALLOWED_SERVICES, check_allowlist, validate_arg
 
 
 def test_plain_service_name():
@@ -59,3 +59,26 @@ def test_newline_rejected():
 def test_nul_rejected():
     err = validate_arg("foo\x00bar")
     assert err is not None
+
+
+def test_default_service_passes():
+    assert check_allowlist("s3", DEFAULT_ALLOWED_SERVICES) is None
+    assert check_allowlist("sts", DEFAULT_ALLOWED_SERVICES) is None
+
+
+def test_unknown_service_blocked():
+    err = check_allowlist("kms", DEFAULT_ALLOWED_SERVICES)
+    assert err == "paws: service 'kms' is not permitted"
+
+
+def test_all_services_allowed_when_none():
+    assert check_allowlist("kms", None) is None
+    assert check_allowlist("any-made-up-service", None) is None
+
+
+def test_custom_allowlist():
+    custom = frozenset({"kms", "s3"})
+    assert check_allowlist("kms", custom) is None
+    err = check_allowlist("ec2", custom)
+    assert err is not None
+    assert "ec2" in err

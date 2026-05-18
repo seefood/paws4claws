@@ -43,3 +43,12 @@ def validate_arg(arg: str) -> str | None:
     if _BLOCKED_CHARS & set(arg):
         return f"paws: argument rejected: '{arg}'"
     return None
+
+
+def check_allowlist(service: str, allowed: frozenset[str] | None) -> str | None:
+    """Return None if allowed, error message if not. None means all permitted."""
+    if allowed is None:
+        return None
+    if service not in allowed:
+        return f"paws: service '{service}' is not permitted"
+    return None
