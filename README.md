@@ -8,6 +8,7 @@ before it ever reaches the LLM.
 ## Problem
 
 AI agent containers cannot safely hold long-lived AWS credentials:
+
 - Credentials in the container mean credentials in the LLM's reachable environment
 - Raw AWS output is often too large to pass to the LLM unfiltered
 - OneCLI proxies HTTP APIs but cannot intercept local subprocess calls to `aws`
@@ -40,12 +41,12 @@ credentials in v1.
 
 ## Roadmap
 
-| Version | Feature |
-|---------|---------|
-| **v1** | argv forwarding, stdout/stderr return, per-client tokens, service allowlist |
-| **v2** | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`) |
-| **v3** | file passing (wrapper detects local file args, inlines them in the request) |
-| future | multiple IAM profiles mapped to tokens, streaming output |
+| Version | Feature                                                                     |
+| ------- | --------------------------------------------------------------------------- |
+| **v1**  | argv forwarding, stdout/stderr return, per-client tokens, service allowlist |
+| **v2**  | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`)              |
+| **v3**  | file passing (wrapper detects local file args, inlines them in the request) |
+| future  | multiple IAM profiles mapped to tokens, streaming output                    |
 
 ## Security model
 

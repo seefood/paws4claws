@@ -70,6 +70,7 @@ Network isolation is a second layer of defense alongside token auth.
 ## Roadmap
 
 ### v1 — stdout/stderr (current focus)
+
 - Daemon container on a dedicated Docker network
 - `POST /invoke` accepts `{"args": [...]}`, returns `{"exitCode", "stdout", "stderr"}`
 - Per-arg sanitization, service allowlist
@@ -77,18 +78,21 @@ Network isolation is a second layer of defense alongside token auth.
 - Drop-in `aws` wrapper script (shell + curl + jq)
 
 ### v2 — stdin passthrough
+
 - Wrapper detects piped stdin, base64-encodes it, adds `"stdin"` to payload
 - Daemon decodes and pipes to subprocess stdin
 - Enables: `echo data | aws s3 cp - s3://bucket/key`
 - stdin is not sanitized — it is opaque data
 
 ### v3 — file passing (tentative)
+
 - Wrapper detects args that are existing local files or `file://` URIs
 - Encodes file content inline in a `"files"` array with `argIndex`
 - Daemon materializes temp files, substitutes paths in argv, cleans up after exec
 - Open questions: distinguishing file paths from S3 keys/log group names, size limits
 
 ### Future
+
 - Multiple IAM profiles mapped to specific tokens (token → profile lookup)
 - Presigned URL offload for large file transfers
 - Streaming output (chunked response)
@@ -116,6 +120,7 @@ Content-Type: application/json
 ```
 
 HTTP status codes:
+
 - `401` — missing or invalid token
 - `403` — allowlist violation (`"error"` field has the reason)
 - `400` — malformed request
@@ -161,6 +166,7 @@ Per-arg, before exec. The daemon builds an explicit argv list and calls the
 subprocess with `shell=False` / `execvp`. The shell never sees the args.
 
 Rules applied to each arg:
+
 - Must match `[A-Za-z0-9:/_\-\.@=,*+%~]` — reject on first violation
 - Explicit block: `$`, `` ` ``, `$(`, `;`, `|`, `&`, `<`, `>`, `(`, `)`, `\`, newline, NUL
 - `..` (path traversal) rejected
@@ -222,7 +228,7 @@ in any Linux image.
 
 1. **Daemon language**: Python stdlib (zero deps, one file), Go (static binary, easy
    concurrency), or other?
-2. **Token config format**: env vars (`PAWS_TOKEN_AGENT_A`, `PAWS_TOKEN_AGENT_B`),
+1. **Token config format**: env vars (`PAWS_TOKEN_AGENT_A`, `PAWS_TOKEN_AGENT_B`),
    a flat config file, or a mounted secrets file?
-3. **v3 file detection heuristic**: `[ -f "$arg" ]` is simple but could false-positive
+1. **v3 file detection heuristic**: `[ -f "$arg" ]` is simple but could false-positive
    on paths that happen to exist on the wrapper host. Worth a stricter heuristic?
