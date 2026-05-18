@@ -8,10 +8,16 @@ ______________________________________________________________________
 
 ## Problem
 
-AI agent containers need AWS access. Injecting credentials into the container exposes them
-to LLM context, tool outputs, and prompt-injection attacks. Additionally, raw AWS output
+Some AI agent containers may need AWS access. Injecting credentials into the container exposes them
+to LLM context, tool outputs, and prompt-injection attacks.
+
+Nano-claw pioneered the use of OneCLI for that, but the AWS API uses a stronger request signature methodology that does not support proxying it.
+
+One possible solution is an MCP service, but raw AWS output
 is often too large to pass to the LLM unfiltered; agents should be able to pipe output
-through `jq`, `grep`, etc. before it reaches context.
+through `jq`, `grep`, etc. before it reaches context and wastes tokens.
+
+The solution: a CLI that actually wraps the requester call to the CLI, and teleports it to a sidecar container that IS exposed to the credentials.
 
 ______________________________________________________________________
 
@@ -21,9 +27,12 @@ ______________________________________________________________________
 paws4claws/
 ├── daemon/
 │   ├── paws.py          # entire daemon — single file, stdlib only
-│   └── Dockerfile       # python:3.12-slim + awscli, EXPOSE 7142
+│   └── Dockerfile       # ghcr.io/astral-sh/uv:python3.12-bookworm-slim + awscli
 ├── wrapper/
 │   └── aws              # drop-in shell script for agent containers
+├── examples/
+│   └── nanoclaw/
+│       └── paws-aws.md  # Claude Code skill for nanoclaw agents
 ├── specs/
 │   └── v1/
 │       └── 2026-05-18-paws-v1-design.md
@@ -53,7 +62,7 @@ Docker network: paws-net
                        │  POST /invoke
                        │  Authorization: Bearer <PAWS_TOKEN_*>
                        ▼
-              ┌─────────────────────┐
+              ┌──────────────────────┐
               │   paws daemon        │
               │   (paws-net only)    │
               │                      │
@@ -69,7 +78,7 @@ Docker network: paws-net
               │                      │
               │  AWS credentials     │
               │  in environment      │
-              └─────────────────────┘
+              └──────────────────────┘
 ```
 
 **Daemon:** Python 3.12, `http.server.ThreadingHTTPServer`, zero external dependencies.
@@ -99,10 +108,10 @@ Routes:
 ### `daemon/Dockerfile`
 
 ```dockerfile
-FROM python:3.12-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir awscli
+RUN uv pip install --system --no-cache awscli
 COPY paws.py /usr/local/bin/paws.py
 EXPOSE 7142
 HEALTHCHECK CMD curl -sf http://localhost:7142/health || exit 1
@@ -193,8 +202,13 @@ Applied in order before subprocess. Any failure short-circuits with the appropri
 s3, ec2, logs, ssm, sts, iam, lambda, cloudformation, ecr, secretsmanager
 ```
 
-Configurable via `PAWS_ALLOWED_SERVICES` (comma-separated env var). IAM policy on the
-credentials is the primary access control; this allowlist is defense-in-depth.
+Configurable via `PAWS_ALLOWED_SERVICES` (comma-separated env var).
+
+Set `PAWS_ALLOWED_SERVICES=all` to disable the allowlist entirely and rely solely on
+IAM permissions. This is appropriate when the IAM policy is already tightly scoped
+and the proxy allowlist would only add friction.
+
+IAM policy is always the primary security control; the allowlist is defense-in-depth.
 
 Response on failure: HTTP 403, `{"error": "forbidden", "message": "paws: service 'X' is not permitted"}`
 
@@ -289,7 +303,7 @@ ______________________________________________________________________
 No network, no Docker, no real AWS. Test individual functions in `paws.py`:
 
 - Arg char filter: valid args pass; shell metacharacters, path traversal, NUL rejected
-- Service allowlist: known services pass; unknown services fail; custom `PAWS_ALLOWED_SERVICES` respected
+- Service allowlist: known services pass; unknown services fail; custom `PAWS_ALLOWED_SERVICES` respected; `PAWS_ALLOWED_SERVICES=all` bypasses the check entirely
 - File-I/O guard: S3 URIs and `-` pass for cp/mv/sync; local paths fail; other subcommands unaffected
 - Token loading: `PAWS_TOKEN_*` vars loaded correctly; no tokens → startup failure
 - Response serialisation: stdout/stderr/exitCode encoded and decoded correctly
@@ -313,6 +327,58 @@ canned `CompletedProcess` objects. Make real HTTP requests against a live socket
 
 Run locally against a real daemon container. Requires `PAWS_TOKEN` set and daemon
 running on `localhost:7142`. Exercises a real `aws sts get-caller-identity` call.
+
+______________________________________________________________________
+
+## Nanoclaw Integration Skill (`examples/nanoclaw/paws-aws.md`)
+
+A Claude Code skill file shipped in this repo for nanoclaw agents to consume. Intended
+to be submitted as a PR to the nanoclaw skills directory once v1 is stable.
+
+### Purpose
+
+Teaches a nanoclaw agent how to use the `aws` proxy wrapper: what's available, what's
+not, and idiomatic patterns for keeping AWS output out of LLM context.
+
+### Skill content outline
+
+```
+---
+name: paws-aws
+description: Use AWS CLI via the PAWS proxy — credential-isolated aws calls for nanoclaw agents
+---
+
+## Prerequisites
+- PAWS_TOKEN env var is set in this container
+- PAWS_URL defaults to http://paws:7142 (override if needed)
+- aws wrapper is at /usr/local/bin/aws (installed in this image)
+
+## Usage
+Use `aws` exactly as you would the real CLI. Output lands on stdout/stderr as normal;
+pipe it before it reaches your context:
+
+    aws s3 ls s3://my-bucket/prefix/ | grep ".gz" | head -20
+    aws sts get-caller-identity | jq '.Account'
+    aws logs describe-log-groups --query 'logGroups[*].logGroupName' --output text
+
+## v1 Limitations
+Local file I/O is not supported. These will return a 501 error:
+- aws s3 cp s3://bucket/key /local/path
+- aws s3 cp /local/path s3://bucket/key
+- aws s3 sync ./local s3://bucket/
+
+Allowed: S3-to-S3 and S3-to-stdout transfers:
+    aws s3 cp s3://bucket/key -          # streams to stdout
+    aws s3 cp s3://b/src s3://b/dst      # server-side copy
+
+## Error handling
+Non-zero exit codes are AWS errors (check stderr). If the proxy itself errors,
+stderr will start with "paws:" — this is a proxy/config issue, not an AWS error.
+```
+
+The actual skill file is written verbatim to `examples/nanoclaw/paws-aws.md` and
+follows the superpowers skill front-matter format so it can be dropped into any
+nanoclaw agent image's skills directory.
 
 ______________________________________________________________________
 
