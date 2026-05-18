@@ -6,6 +6,7 @@ import re
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
+
 DEFAULT_ALLOWED_SERVICES = frozenset(
     {
         "s3",
@@ -28,6 +29,25 @@ PORT = int(os.environ.get("PAWS_PORT", "7142"))
 _ARG_RE = re.compile(r"^[A-Za-z0-9:/_\-\.@=,*+%~]+$")
 _BLOCKED_SEQS = ("$(", "..")
 _BLOCKED_CHARS = frozenset("$`;\n\x00|&<>()\\ ")
+
+
+# ── Startup ────────────────────────────────────────────────────────────────────
+
+
+def load_tokens(env: dict[str, str] | None = None) -> frozenset[str]:
+    source = env if env is not None else os.environ
+    return frozenset(v for k, v in source.items() if k.startswith("PAWS_TOKEN_") and v)
+
+
+def load_allowed_services(env: dict[str, str] | None = None) -> frozenset[str] | None:
+    """Return None to mean 'all services allowed'."""
+    source = env if env is not None else os.environ
+    val = source.get("PAWS_ALLOWED_SERVICES", "").strip()
+    if val.lower() == "all":
+        return None
+    if val:
+        return frozenset(s.strip() for s in val.split(",") if s.strip())
+    return DEFAULT_ALLOWED_SERVICES
 
 
 # ── Sanitization ───────────────────────────────────────────────────────────────
