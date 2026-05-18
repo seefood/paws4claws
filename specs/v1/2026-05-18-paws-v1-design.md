@@ -27,7 +27,7 @@ ______________________________________________________________________
 paws4claws/
 ├── daemon/
 │   ├── paws.py          # entire daemon — single file, stdlib only
-│   └── Dockerfile       # ghcr.io/astral-sh/uv:python3.12-bookworm-slim + awscli
+│   └── Dockerfile       # python:3.12-slim + AWS CLI v2 official installer
 ├── wrapper/
 │   └── aws              # drop-in shell script for agent containers
 ├── examples/
@@ -81,9 +81,9 @@ Docker network: paws-net
               └──────────────────────┘
 ```
 
-**Daemon:** Python 3.12, `http.server.ThreadingHTTPServer`, zero external dependencies.
-One thread per request; each thread calls `subprocess.run` and blocks until the AWS CLI
-returns. Published as `ghcr.io/seefood/paws4claws`.
+**Daemon:** Python 3.12, `http.server.ThreadingHTTPServer`, zero Python package dependencies.
+One thread per request; each thread calls `subprocess.run` and blocks until the AWS CLI v2
+binary returns. Published as `ghcr.io/seefood/paws4claws`.
 
 **Wrapper:** Shell script (`curl` + `jq`). Installed at `/usr/local/bin/aws` in agent
 containers. The agent calls it exactly as it would the real CLI.
@@ -108,15 +108,22 @@ Routes:
 ### `daemon/Dockerfile`
 
 ```dockerfile
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+FROM python:3.12-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl unzip \
+    && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/awscliv2.zip /tmp/aws \
     && rm -rf /var/lib/apt/lists/*
-RUN uv pip install --system --no-cache awscli
 COPY paws.py /usr/local/bin/paws.py
 EXPOSE 7142
 HEALTHCHECK CMD curl -sf http://localhost:7142/health || exit 1
 ENTRYPOINT ["python", "/usr/local/bin/paws.py"]
 ```
+
+AWS CLI v2 is installed via the official bundled installer — not pip. `paws.py` has no
+Python package dependencies, so no package manager is needed in this image.
 
 Image published to `ghcr.io/seefood/paws4claws` via GitHub Actions on tag push.
 
