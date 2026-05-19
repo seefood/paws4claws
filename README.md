@@ -1,6 +1,6 @@
 ![paws4claws logo](docs/PAWS4Claws-logo.jpg)
 
-# paws4claws — Proxied AWS Shell
+# paws4claws — Proxied AWS CLI
 
 A credential-isolation daemon for AI agent containers. Agents run AWS CLI commands
 without ever holding credentials; a dedicated sidecar container holds them, executes
@@ -12,8 +12,8 @@ before it ever reaches the LLM.
 AI agent containers cannot safely hold long-lived AWS credentials:
 
 - Credentials in the container mean credentials in the LLM's reachable environment
-- Raw AWS output is often too large to pass to the LLM unfiltered
-- OneCLI proxies HTTP APIs but cannot intercept local subprocess calls to `aws`
+- Why not MCP? Raw AWS output is often too large to pass to the LLM unfiltered
+- [OneCLI](https://github.com/onecli/onecli) proxies HTTP APIs but the `aws` protocol works with fully signed payload
 
 ## How it works
 
@@ -39,7 +39,12 @@ agent calls:  aws s3 ls s3://bucket/ | grep ".csv"
 
 The agent never has `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or any token.
 Each agent container gets its own bearer token; all tokens map to the same IAM
-credentials in v1.
+credentials in the first version, I might consider adding more in the future, but
+a true paranoid DevOps guy like me would rather run two containers with different credentials
+for each.
+
+The paws container can get the dredentials from IMDSv2, ~/.aws/ files or the
+environment, as it runs the real `aws` CLI v2.
 
 ## Roadmap
 
@@ -63,6 +68,15 @@ credentials in v1.
 - **Service allowlist.** Only explicitly permitted AWS services can be invoked.
 - **IAM is the primary security control.** The allowlist is defense-in-depth.
   Scope the IAM credentials to exactly what the agents need.
+
+*Disclaimer:* this is not (yet) a stable or commercial-level product. It was written to scratch my personal itch.
+I would appreciate more experienced eyes to check my design and code and offer improvements.
+
+## Installation
+
+- Each clawed agent works differently. I use NanoClaw, you may use Hermes, OpenClaw or one of the many others on the market.
+- Claw agents are often in flux, additions like PAWS will be implemented by a Claude skill usually, rather than a deterministic piece of code.
+- So in the spirit of the \*claw world, I am including a [sample skill](<>), and you're welcome to add your improvements and ports to other claws with a PR.
 
 ## See also
 
