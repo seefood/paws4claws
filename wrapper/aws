@@ -1,0 +1,29 @@
+#!/bin/sh
+# Drop-in aws wrapper for PAWS — forwards calls to the credential daemon.
+# Install at /usr/local/bin/aws in agent containers.
+# Requires: PAWS_TOKEN env var, curl, jq
+
+PAWS_URL="${PAWS_URL:-http://paws:7142}"
+
+ARGS=$(printf '%s\n' "$@" | jq -R . | jq -sc .)
+
+RESPONSE=$(curl -s \
+  -H "Authorization: Bearer $PAWS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"args\": $ARGS}" \
+  "$PAWS_URL/invoke")
+
+if [ $? -ne 0 ] || [ -z "$RESPONSE" ]; then
+  echo "paws: daemon unreachable" >&2
+  exit 1
+fi
+
+# Error responses (4xx/5xx) carry an "error" field but no exitCode/stdout/stderr
+if printf '%s' "$RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+  printf '%s' "$RESPONSE" | jq -r '.message // .error' >&2
+  exit 1
+fi
+
+printf '%s' "$RESPONSE" | jq -r '.stdout'
+printf '%s' "$RESPONSE" | jq -r '.stderr' >&2
+exit "$(printf '%s' "$RESPONSE" | jq -r '.exitCode')"
