@@ -74,11 +74,17 @@ I would appreciate more experienced eyes to check my design and code and offer i
 
 ## Installation
 
-- Each clawed agent works differently. I use NanoClaw, you may use Hermes, OpenClaw or one of the many others on the market.
-- Claw agents are often in flux, additions like PAWS will be implemented by a Claude skill usually, rather than a deterministic piece of code.
-- So in the spirit of the \*claw world, I am including a [sample skill](<>), and you're welcome to add your improvements and ports to other claws with a PR.
+See [INSTALL.md](INSTALL.md) for full setup instructions: building the image,
+creating the Docker network, generating tokens, running the daemon, and wiring
+agent containers in.
+
+## Agent integrations
+
+Each clawed agent works differently. I use NanoClaw, you may use Hermes, OpenClaw or one of the many others on the market.
+Claw agents are often in flux, additions like PAWS will be implemented by a Claude skill usually, rather than a deterministic piece of code.
+In the spirit of the \*claw world, I am including a [sample nanoclaw skill](examples/nanoclaw/paws-aws.md), and you're welcome to add your improvements and ports to other claws with a PR.
 
 ## See also
 
-[DESIGN.md](DESIGN.md) — full architecture, wire protocol, sanitization rules,
-and open design questions.
+- [INSTALL.md](INSTALL.md) — setup, docker-compose, agent wiring
+- [DESIGN.md](DESIGN.md) — full architecture, wire protocol, sanitization rules
