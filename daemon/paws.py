@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """PAWS — Proxied AWS Shell daemon."""
 
+import json
 import os
 import re
+import shutil
+import subprocess
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -88,3 +93,160 @@ def check_file_io(args: list[str]) -> str | None:
                 "See https://github.com/seefood/paws4claws for the roadmap."
             )
     return None
+
+
+# ── HTTP handler ───────────────────────────────────────────────────────────────
+
+
+class PawsHandler(BaseHTTPRequestHandler):
+    tokens: frozenset[str]
+    allowed_services: frozenset[str] | None
+
+    def log_message(self, fmt, *args):  # noqa: A002
+        pass  # suppress default access log to avoid leaking token fragments
+
+    def _send_json(self, code: int, body: dict) -> None:
+        data = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):  # noqa: N802
+        if self.path == "/health":
+            self._send_json(200, {"ok": True})
+        else:
+            self._send_json(404, {"error": "not_found"})
+
+    def do_POST(self):  # noqa: N802
+        if self.path != "/invoke":
+            self._send_json(404, {"error": "not_found"})
+            return
+
+        auth = self.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") or auth[7:] not in self.tokens:
+            self._send_json(401, {"error": "unauthorized"})
+            return
+
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            body = json.loads(self.rfile.read(length))
+            args = body["args"]
+            if not isinstance(args, list) or not args:
+                raise ValueError("args must be a non-empty list")
+            args = [str(a) for a in args]
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(400, {"error": "bad_request", "message": str(exc)})
+            return
+
+        err = check_allowlist(args[0], self.allowed_services)
+        if err:
+            self._send_json(403, {"error": "forbidden", "message": err})
+            return
+
+        for arg in args:
+            err = validate_arg(arg)
+            if err:
+                self._send_json(403, {"error": "forbidden", "message": err})
+                return
+
+        err = check_file_io(args)
+        if err:
+            self._send_json(501, {"error": "not_implemented", "message": err})
+            return
+
+        try:
+            result = subprocess.run(  # noqa: S603
+                ["aws", *args],  # noqa: S607
+                shell=False,
+                capture_output=True,
+                timeout=TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            self._send_json(
+                200,
+                {
+                    "exitCode": 1,
+                    "stdout": "",
+                    "stderr": f"paws: command timed out after {TIMEOUT_SECONDS}s",
+                },
+            )
+            return
+        except FileNotFoundError:
+            self._send_json(
+                200,
+                {
+                    "exitCode": 1,
+                    "stdout": "",
+                    "stderr": "paws: aws CLI not found in daemon container",
+                },
+            )
+            return
+
+        stdout_too_big = len(result.stdout) > MAX_OUTPUT_BYTES
+        stderr_too_big = len(result.stderr) > MAX_OUTPUT_BYTES
+        if stdout_too_big or stderr_too_big:
+            self._send_json(
+                200,
+                {
+                    "exitCode": 1,
+                    "stdout": "",
+                    "stderr": "paws: output truncated — exceeds 10 MB limit",
+                },
+            )
+            return
+
+        self._send_json(
+            200,
+            {
+                "exitCode": result.returncode,
+                "stdout": result.stdout.decode(errors="replace"),
+                "stderr": result.stderr.decode(errors="replace"),
+            },
+        )
+
+
+# ── Server factory ─────────────────────────────────────────────────────────────
+
+
+def make_handler(
+    tokens: frozenset[str],
+    allowed_services: frozenset[str] | None,
+) -> type[PawsHandler]:
+    """Return a PawsHandler subclass with config baked in. Used in tests."""
+
+    class _Handler(PawsHandler):
+        pass
+
+    _Handler.tokens = tokens
+    _Handler.allowed_services = allowed_services
+    return _Handler
+
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    if not shutil.which("aws"):
+        print("paws: aws CLI not found in PATH — refusing to start", file=sys.stderr)
+        sys.exit(1)
+
+    tokens = load_tokens()
+    if not tokens:
+        print(
+            "paws: no PAWS_TOKEN_* env vars configured — refusing to start",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    allowed_services = load_allowed_services()
+    handler_class = make_handler(tokens, allowed_services)
+
+    with ThreadingHTTPServer(("0.0.0.0", PORT), handler_class) as server:  # noqa: S104
+        print(f"paws: listening on 0.0.0.0:{PORT}", file=sys.stderr, flush=True)
+        server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
