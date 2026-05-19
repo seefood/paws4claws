@@ -1,3 +1,5 @@
+![paws4claws logo](docs/PAWS4Claws-logo.jpg)
+
 # paws4claws — Proxied AWS Shell
 
 A credential-isolation daemon for AI agent containers. Agents run AWS CLI commands
