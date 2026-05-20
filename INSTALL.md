@@ -286,7 +286,9 @@ This section summarises everything an agent skill needs to know.
 | `paws:`                    | Proxy error — config, network, or unsupported op |
 | `paws: daemon unreachable` | Container is not on `paws-net` or daemon is down |
 
-### Skill file location in this repo
+### Example skills in this repo
 
-A ready-to-use Claude Code skill for nanoclaw agents is at
-[`examples/nanoclaw/paws-aws.md`](examples/nanoclaw/paws-aws.md).
+| File                                                                                     | Purpose                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`examples/nanoclaw/paws-aws.md`](examples/nanoclaw/paws-aws.md)                         | In-agent skill — tells the agent how to use the `aws` wrapper (usage patterns, v1 limitations, error signals)                                                             |
+| [`examples/nanoclaw/add-paws4claws/SKILL.md`](examples/nanoclaw/add-paws4claws/SKILL.md) | Operator/setup skill — step-by-step instructions for wiring nanoclaw agent containers to a PAWS daemon, including the `NO_PROXY` gotcha when an HTTP proxy is in the path |
