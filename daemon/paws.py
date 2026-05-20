@@ -40,6 +40,7 @@ _BLOCKED_CHARS = frozenset("$`;\n\x00|&<>()\\ ")
 
 
 def load_tokens(env: dict[str, str] | None = None) -> frozenset[str]:
+    """Read PAWS_TOKEN_<LABEL> env vars into a frozenset of token strings."""
     source = env if env is not None else os.environ
     return frozenset(v for k, v in source.items() if k.startswith("PAWS_TOKEN_") and v)
 
@@ -99,11 +100,13 @@ def check_file_io(args: list[str]) -> str | None:
 
 
 class PawsHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for the PAWS proxy daemon."""
+
     tokens: frozenset[str]
     allowed_services: frozenset[str] | None
 
-    def log_message(self, fmt, *args):  # noqa: A002
-        pass  # suppress default access log to avoid leaking token fragments
+    def log_message(self, fmt, *args):
+        """Suppress default access log to avoid leaking token fragments."""
 
     def _send_json(self, code: int, body: dict) -> None:
         data = json.dumps(body).encode()
@@ -113,13 +116,15 @@ class PawsHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
+        """Handle GET requests: only /health is supported."""
         if self.path == "/health":
             self._send_json(200, {"ok": True})
         else:
             self._send_json(404, {"error": "not_found"})
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
+        """Handle POST /invoke: authenticate, sanitize, and proxy to aws CLI."""
         if self.path != "/invoke":
             self._send_json(404, {"error": "not_found"})
             return
@@ -136,7 +141,7 @@ class PawsHandler(BaseHTTPRequestHandler):
             if not isinstance(args, list) or not args:
                 raise ValueError("args must be a non-empty list")
             args = [str(a) for a in args]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._send_json(400, {"error": "bad_request", "message": str(exc)})
             return
 
@@ -157,11 +162,12 @@ class PawsHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = subprocess.run(  # noqa: S603
-                ["aws", *args],  # noqa: S607
+            result = subprocess.run(
+                ["aws", *args],
                 shell=False,
                 capture_output=True,
                 timeout=TIMEOUT_SECONDS,
+                check=False,
             )
         except subprocess.TimeoutExpired:
             self._send_json(
@@ -228,6 +234,7 @@ def make_handler(
 
 
 def main() -> None:
+    """Start the PAWS daemon: validate environment, then serve forever."""
     if not shutil.which("aws"):
         print("paws: aws CLI not found in PATH — refusing to start", file=sys.stderr)
         sys.exit(1)
@@ -243,7 +250,7 @@ def main() -> None:
     allowed_services = load_allowed_services()
     handler_class = make_handler(tokens, allowed_services)
 
-    with ThreadingHTTPServer(("0.0.0.0", PORT), handler_class) as server:  # noqa: S104
+    with ThreadingHTTPServer(("0.0.0.0", PORT), handler_class) as server:
         print(f"paws: listening on 0.0.0.0:{PORT}", file=sys.stderr, flush=True)
         server.serve_forever()
 

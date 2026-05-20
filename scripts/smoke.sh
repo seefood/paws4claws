@@ -19,19 +19,19 @@ aws sts get-caller-identity | jq .
 echo ""
 echo "=== Blocked service (expect error message) ==="
 RESPONSE=$(curl -s \
-  -H "Authorization: Bearer $PAWS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"args": ["kms", "list-keys"]}' \
-  "$PAWS_URL/invoke")
+	-H "Authorization: Bearer $PAWS_TOKEN" \
+	-H "Content-Type: application/json" \
+	-d '{"args": ["kms", "list-keys"]}' \
+	"$PAWS_URL/invoke")
 echo "$RESPONSE" | jq .
 
 echo ""
 echo "=== Local file copy (expect 501) ==="
 RESPONSE=$(curl -s \
-  -H "Authorization: Bearer $PAWS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"args": ["s3", "cp", "s3://bucket/key", "/tmp/test"]}' \
-  "$PAWS_URL/invoke")
+	-H "Authorization: Bearer $PAWS_TOKEN" \
+	-H "Content-Type: application/json" \
+	-d '{"args": ["s3", "cp", "s3://bucket/key", "/tmp/test"]}' \
+	"$PAWS_URL/invoke")
 echo "$RESPONSE" | jq .
 
 echo ""

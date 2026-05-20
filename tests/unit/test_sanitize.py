@@ -20,6 +20,7 @@ def test_equals_in_arg():
 
 
 def test_dollar_sign_rejected():
+    """Dollar signs are blocked to prevent variable expansion."""
     err = validate_arg("$HOME")
     assert err is not None
     assert "rejected" in err
@@ -31,6 +32,7 @@ def test_backtick_rejected():
 
 
 def test_subshell_rejected():
+    """$(...) subshell syntax is explicitly blocked."""
     err = validate_arg("$(id)")
     assert err is not None
 
@@ -46,6 +48,7 @@ def test_pipe_rejected():
 
 
 def test_path_traversal_rejected():
+    """.. sequences are blocked to prevent path traversal."""
     err = validate_arg("../../etc/passwd")
     assert err is not None
     assert "rejected" in err
@@ -67,11 +70,13 @@ def test_default_service_passes():
 
 
 def test_unknown_service_blocked():
+    """Services not in the default set produce a descriptive error message."""
     err = check_allowlist("kms", DEFAULT_ALLOWED_SERVICES)
     assert err == "paws: service 'kms' is not permitted"
 
 
 def test_all_services_allowed_when_none():
+    """allowed=None means PAWS_ALLOWED_SERVICES=all — every service is permitted."""
     assert check_allowlist("kms", None) is None
     assert check_allowlist("any-made-up-service", None) is None
 
@@ -101,12 +106,14 @@ def test_s3_sync_s3_to_s3_allowed():
 
 
 def test_local_dest_blocked():
+    """Copying from S3 to a local path is rejected with a v1 limitation message."""
     err = check_file_io(["s3", "cp", "s3://bucket/key", "/tmp/file"])
     assert err is not None
     assert "not supported in v1" in err
 
 
 def test_local_source_blocked():
+    """Copying from a local path to S3 is also rejected in v1."""
     err = check_file_io(["s3", "cp", "/tmp/file", "s3://bucket/key"])
     assert err is not None
     assert "not supported in v1" in err
@@ -130,5 +137,6 @@ def test_flags_before_paths_skipped():
 
 
 def test_too_few_args_is_fine():
+    """Calls with fewer than 2 args bypass the file-I/O guard entirely."""
     assert check_file_io(["s3"]) is None
     assert check_file_io([]) is None

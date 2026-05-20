@@ -14,7 +14,8 @@ def test_loads_multiple_tokens():
 
 
 def test_ignores_non_prefixed_vars():
-    env = {"PAWS_TOKEN_A": "good", "PAWS_SECRET": "ignored", "OTHER": "also"}
+    """Vars not starting with PAWS_TOKEN_ are ignored even if they look secret."""
+    env = {"PAWS_TOKEN_A": "good", "PAWS_SECRET": "ignored", "OTHER": "also"}  # pragma: allowlist secret
     assert load_tokens(env) == frozenset({"good"})
 
 
@@ -24,6 +25,7 @@ def test_empty_token_values_ignored():
 
 
 def test_no_tokens_returns_empty():
+    """Empty env dict produces an empty frozenset (daemon would refuse to start)."""
     assert load_tokens({}) == frozenset()
 
 
@@ -31,10 +33,12 @@ def test_no_tokens_returns_empty():
 
 
 def test_defaults_when_unset():
+    """Omitting PAWS_ALLOWED_SERVICES uses the built-in default service set."""
     assert load_allowed_services({}) == DEFAULT_ALLOWED_SERVICES
 
 
 def test_all_lowercase_returns_none():
+    """PAWS_ALLOWED_SERVICES=all (any case) returns None meaning 'no restriction'."""
     assert load_allowed_services({"PAWS_ALLOWED_SERVICES": "all"}) is None
 
 

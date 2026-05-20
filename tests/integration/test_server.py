@@ -15,6 +15,7 @@ ALLOWED = frozenset({"s3", "sts"})
 
 @pytest.fixture(scope="module")
 def base_url():
+    """Spin up a real ThreadingHTTPServer on a random port for the module."""
     handler = make_handler(TOKENS, ALLOWED)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     port = httpd.server_address[1]
@@ -25,18 +26,20 @@ def base_url():
 
 
 def _get(url):
-    with urllib.request.urlopen(url) as resp:
+    """Issue a GET to url and return (status, parsed_body)."""
+    with urllib.request.urlopen(url) as resp:  # nosec B310
         return resp.status, json.loads(resp.read())
 
 
 def _post(url, body, token=None):
+    """Issue a POST to url with JSON body and optional Bearer token."""
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req) as resp:  # nosec B310
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read())
@@ -46,6 +49,7 @@ def _post(url, body, token=None):
 
 
 def test_health_no_auth(base_url):
+    """GET /health requires no auth and returns {"ok": true}."""
     status, body = _get(f"{base_url}/health")
     assert status == 200
     assert body == {"ok": True}
@@ -70,6 +74,7 @@ def test_wrong_token_is_401(base_url):
 
 
 def test_valid_token_proceeds(base_url):
+    """A valid Bearer token reaches subprocess.run and returns exitCode 0."""
     mock = MagicMock()
     mock.returncode = 0
     mock.stdout = b'{"Account":"123"}'
@@ -162,9 +167,8 @@ def test_s3_to_stdout_is_allowed(base_url):
 
 
 def test_command_timeout(base_url):
-    with patch(
-        "paws.subprocess.run", side_effect=subprocess.TimeoutExpired(["aws"], 120)
-    ):
+    """TimeoutExpired is returned as exitCode 1 with a descriptive stderr."""
+    with patch("paws.subprocess.run", side_effect=subprocess.TimeoutExpired(["aws"], 120)):
         status, body = _post(
             f"{base_url}/invoke",
             {"args": ["sts", "get-caller-identity"]},
@@ -188,6 +192,7 @@ def test_aws_not_found(base_url):
 
 
 def test_output_size_cap(base_url):
+    """Output exceeding 10 MB is replaced with an error message."""
     mock = MagicMock()
     mock.returncode = 0
     mock.stdout = b"x" * (10 * 1024 * 1024 + 1)

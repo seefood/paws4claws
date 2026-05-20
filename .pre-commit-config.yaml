@@ -1,24 +1,208 @@
+# fail_fast: true
+minimum_pre_commit_version: 1.18.1
+# to update and lockdown tests, run this once in a while:
+# prek autoupdate --freeze --cooldown-days 10
 repos:
+  ##################################
+  # 🔧 GENERAL CODE CLEANUP HOOKS
+  ##################################
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
     hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-      - id: check-added-large-files
-      - id: check-merge-conflict
+      - id: trailing-whitespace # ✔ Removes trailing whitespace from all lines
+      - id: end-of-file-fixer # ✔ Ensures every file ends with a single newline
+      - id: check-ast # ⚠ Fails if a Python file contains syntax errors (invalid Python code)
+      - id: check-symlinks # ⚠ Fails if the repo contains broken symbolic links
+      - id: check-builtin-literals # ✔ Rewrites comparisons to use `True`, `False`, or `None` literals instead of built-ins
+      - id: check-case-conflict # ⚠ Fails if the repo contains files that conflict only by case (e.g., `file.py` vs `File.py`)
+      - id: check-yaml # ⚠ Validates YAML syntax (warns on errors)
+      - id: check-json # ⚠ Validates JSON syntax (warns on errors)
+      - id: check-toml # ⚠ Fails if TOML files have invalid syntax (e.g., missing commas, quotes, brackets)
+      - id: check-executables-have-shebangs # ⚠ Ensures that (non-binary) executables have a shebang.
+      - id: check-shebang-scripts-are-executable # ⚠ Fails if scripts with a shebang are not marked as executable
+      - id: check-merge-conflict # ⚠ Fails if files contain unresolved merge conflict markers
+      - id: check-added-large-files # ⚠ Prevents committing giant files
+        args: [--maxkb=4096] # Limit file size to 4MB
+      - id: check-docstring-first # ⚠ Ensures that a function's docstring appears before code
+      - id: debug-statements # ⚠ Checks for debugger imports and py37+ `breakpoint()` calls in python source.
+      - id: destroyed-symlinks # ⚠ Detects symlinks which are changed to regular files with a content of a path which that symlink was pointing to.
+      - id: detect-private-key # ⚠ Detects the presence of private keys.
+      - id: mixed-line-ending # ✔ Replaces mixed line endings (CRLF/LF/CR) with consistent style (e.g., LF)
+        args: [--fix=lf]
+        #  exclude: ".bat$"
+  # sort json keys to minimize diffs.
+  - repo: https://github.com/tillig/json-sort-cli
+    rev: 009ab2ab49e1f2fa9d6b9dfc31009ceeca055204 # frozen: v3.0.0
+    hooks:
+      - id: json-sort
+        args:
+          - --autofix
+  # Pre-commit Validation
+  - repo: https://github.com/pre-commit/pre-commit
+    ##################################
+    # 🧪 PRE-COMMIT CONFIG VALIDATION
+    ##################################
 
+    rev: f35134b05028ec938ac605ae500fdf95462655d3 # frozen: v4.6.0
+    hooks:
+      - id: validate_manifest # ⚠ Ensures the `.pre-commit-config.yaml` file is correctly formatted
+  # Pre-commit Configuration Hygiene
+  - repo: meta
+    hooks:
+      #- id: check-hooks-apply
+      - id: check-useless-excludes # ⚠ Warns if your config excludes files unnecessarily (i.e., nothing would match anyway)
+  # Shell Script Quality and Formatting
+  - repo: https://github.com/jumanjihouse/pre-commit-hooks
+    ##################################
+    # 💻 SHELL SCRIPT QUALITY
+    ##################################
+
+    rev: 38980559e3a605691d6579f96222c30778e5a69e # frozen: 3.0.0
+    hooks:
+      #- id: git-check  # Configure in .gitattributes
+      - id: shellcheck # ⚠ Static analysis for shell scripts: finds syntax errors, bad practices, and bugs
+      - id: shfmt # ✔ Formats shell scripts for consistent indentation and spacing
+        args: ["-i", "0", "-ci"] # tab indent (repo convention), indent switch cases
+        #  exclude: ".bats$"
+  # Python Formatting + Linting
+  # Replaces: black (×2), black-jupyter, autoflake, isort, pyupgrade, pylint (×2)
+  # Lint rules and per-file-ignores (prod vs tests) are configured in ruff.toml
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.13
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
+    ##################################
+    # 🐍 PYTHON CODE QUALITY
+    ##################################
 
+    rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # frozen: v0.15.12
+    hooks:
+      - id: ruff # ✔ Lint + fix: unused imports (F), pyupgrade (UP), pylint (PL), isort (I)
+        args: [--fix]
+      - id: ruff-format # ✔ Format production code (with string normalisation)
+        name: ruff-format-production
+        files: ^(?!.*test).*\.py$
+      - id: ruff-format # ✔ Format test code (preserve string quotes)
+        name: ruff-format-tests
+        files: (^|.*/)test.*\.py$|.*/tests/.*\.py$
+        #args: [--skip-string-normalization]
+  # Python Documentation Formatting ?
+  - repo: https://github.com/asottile/blacken-docs.git
+    ##################################
+    # 📝 PYTHON DOCS CHECKS
+    ##################################
+
+    rev: fda77690955e9b63c6687d8806bafd56a526e45f # frozen: 1.20.0
+    hooks:
+      - id: blacken-docs # ✔ Formats code blocks inside documentation files
+  # Python Documentation Coverage - Production Code
+  - repo: https://github.com/econchick/interrogate
+    rev: 4894019dc8876092bc9b6d56878798c550fad998 # frozen: 1.7.0
+    hooks:
+      - id: interrogate
+        name: interrogate-production
+        files: ^(?!.*test).*\.py$ # Exclude test files
+        args: [-v, --fail-under=75, --ignore-module, --ignore-private] # Higher threshold for production
+  # Python Documentation Coverage - Test Code (Much More Relaxed)
+  - repo: https://github.com/econchick/interrogate
+    rev: 4894019dc8876092bc9b6d56878798c550fad998 # frozen: 1.7.0
+    hooks:
+      - id: interrogate
+        name: interrogate-tests
+        files: (^|.*/)test.*\.py$|.*/tests/.*\.py$ # Only test files
+        args: [-v, --fail-under=30, --ignore-module, --ignore-private, --ignore-magic, --ignore-init-method] # Very relaxed for tests
+  # Walrus Operator Optimization
+  - repo: https://github.com/MarcoGorelli/auto-walrus
+    #    hooks:
+    #      - id: darglint  # ⚠ Ensures docstrings match function arguments
+
+    ##################################
+    # 🦦 PYTHON SYNTAX OPTIMIZATION
+    ##################################
+
+    #  # Docstring Argument Validation ?
+    #    rev: v1.8.1
+    #  - repo: https://github.com/terrencepreilly/darglint
+    rev: d376c6a49feac78bc2115bf3df7e862629cce612 # frozen: 0.4.1
+    hooks:
+      - id: auto-walrus # ✔ Converts code to use the `:=` walrus operator
+  # YAML Formatting and Cleanup
+  - repo: https://github.com/google/yamlfmt
+    ##################################
+    # 🧹 YAML FORMATTING
+    ##################################
+
+    rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
+    hooks:
+      - id: yamlfmt # ✔ Automatically formats YAML files: preserves key order, configurable formatting
+  # Markdown Formatting
+  # Replaces: markdownlint (×2), markdownlint-cli2 (×2), prettier (×2)
   - repo: https://github.com/executablebooks/mdformat
-    rev: 1.0.0
+    rev: 82912cdaea4fb830f751504486a7879c70526547 # frozen: 1.0.0
     hooks:
       - id: mdformat
         additional_dependencies:
           - mdformat-gfm
           - mdformat-frontmatter
+  # Security Checks - Production Code
+  - repo: https://github.com/PyCQA/bandit
+    ##################################
+    # 🔒 SECURITY CHECKS
+    ##################################
+
+    rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # frozen: 1.9.4
+    hooks:
+      - id: bandit
+        name: bandit-production
+        files: ^(?!.*test)(?!.*TrainerApp).*\.py$ # Exclude test files and legacy ML trainer
+        args: [--skip, "B104,B105,B110,B311,B404,B603,B607,B608"] # B104/B603/B607/B404: subprocess+bind-all-interfaces are intentional in a container daemon
+  # Security Checks - Test Code (More Relaxed)
+  - repo: https://github.com/PyCQA/bandit
+    rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # frozen: 1.9.4
+    hooks:
+      - id: bandit
+        name: bandit-tests
+        files: (^|.*/)test.*\.py$|.*/tests/.*\.py$ # Only test files
+        args: [--skip, "B101,B105,B106,B108,B110,B112,B301,B311,B403,B404,B603,B605,B607,B608,B614"] # Skip security checks common in tests; subprocess usage in test_model_type.py is controlled
+  # Detect Secrets   ?????
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458 # frozen: v1.5.0
+    hooks:
+      - id: detect-secrets # ⚠ Scans for secrets before commit
+        exclude: '(^|.*/)test.*\.py$|.*/tests/.*\.py$|\.secrets\.baseline$|.*\.min.*\.js$|.*static.*\.js$|.*static.*\.html$|specs/security/.*\.md$|.*index\.html$|.*\.min-.*\.js$|pipeline/dagger/pipeline-config.*\.json$|\.pre-commit-config\.yaml$'
+  # GitHub Actions Pinning — fails if any 'uses:' ref lacks a SHA pin.
+  # To fix: pinact run --update --min-age 10
+  - repo: local
+    hooks:
+      - id: pinact
+        name: Check GitHub Actions are SHA-pinned (pinact)
+        entry: pinact run
+        language: system
+        files: ^\.github/(workflows|actions)/.*\.ya?ml$
+        pass_filenames: true
+  # GitHub Actions Security Audit (zizmor) — checks for insecure patterns,
+  # expression injection, excessive permissions, and untrusted action sources.
+  - repo: local
+    hooks:
+      - id: zizmor
+        name: Audit GitHub Actions security (zizmor)
+        entry: zizmor --no-online-audits
+        language: system
+        files: ^\.github/(workflows|actions)/.*\.ya?ml$
+        pass_filenames: true
+  # UV Lock File Management
+  - repo: local
+    ##################################
+    # 📦 DEPENDENCY MANAGEMENT
+    ##################################
+
+    hooks:
+      - id: uv-lock
+        name: UV Lock File Update
+        entry: hooks/uv-lock-hook.sh
+        language: script
+        files: pyproject\.toml$
+        description: ✔ Runs 'uv lock' when pyproject.toml is modified and adds lock files to commit
+      - id: prek-autoupdate
+        name: Freeze pre-commit hook revisions (prek autoupdate)
+        entry: hooks/prek-autoupdate-hook.sh
+        language: script
+        files: \.pre-commit-config\.yaml$
+        description: ✔ Runs 'prek autoupdate --freeze' when .pre-commit-config.yaml is modified and re-stages the result
