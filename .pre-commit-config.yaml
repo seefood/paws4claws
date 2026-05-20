@@ -30,22 +30,6 @@ repos:
       - id: mixed-line-ending # ✔ Replaces mixed line endings (CRLF/LF/CR) with consistent style (e.g., LF)
         args: [--fix=lf]
         #  exclude: ".bat$"
-  # sort json keys to minimize diffs.
-  - repo: https://github.com/tillig/json-sort-cli
-    rev: 009ab2ab49e1f2fa9d6b9dfc31009ceeca055204 # frozen: v3.0.0
-    hooks:
-      - id: json-sort
-        args:
-          - --autofix
-  # Pre-commit Validation
-  - repo: https://github.com/pre-commit/pre-commit
-    ##################################
-    # 🧪 PRE-COMMIT CONFIG VALIDATION
-    ##################################
-
-    rev: f35134b05028ec938ac605ae500fdf95462655d3 # frozen: v4.6.0
-    hooks:
-      - id: validate_manifest # ⚠ Ensures the `.pre-commit-config.yaml` file is correctly formatted
   # Pre-commit Configuration Hygiene
   - repo: meta
     hooks:
@@ -151,7 +135,7 @@ repos:
     hooks:
       - id: bandit
         name: bandit-production
-        files: ^(?!.*test)(?!.*TrainerApp).*\.py$ # Exclude test files and legacy ML trainer
+        files: ^(?!.*test).*\.py$ # Exclude test files
         args: [--skip, "B104,B105,B110,B311,B404,B603,B607,B608"] # B104/B603/B607/B404: subprocess+bind-all-interfaces are intentional in a container daemon
   # Security Checks - Test Code (More Relaxed)
   - repo: https://github.com/PyCQA/bandit
@@ -160,7 +144,7 @@ repos:
       - id: bandit
         name: bandit-tests
         files: (^|.*/)test.*\.py$|.*/tests/.*\.py$ # Only test files
-        args: [--skip, "B101,B105,B106,B108,B110,B112,B301,B311,B403,B404,B603,B605,B607,B608,B614"] # Skip security checks common in tests; subprocess usage in test_model_type.py is controlled
+        args: [--skip, "B101,B105,B106,B108,B110,B112,B301,B311,B403,B404,B603,B605,B607,B608,B614"] # Skip security checks common in tests
   # Detect Secrets   ?????
   - repo: https://github.com/Yelp/detect-secrets
     rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458 # frozen: v1.5.0
