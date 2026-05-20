@@ -46,7 +46,7 @@ def load_tokens(env: dict[str, str] | None = None) -> frozenset[str]:
 
 
 def load_allowed_services(env: dict[str, str] | None = None) -> frozenset[str] | None:
-    """Return None to mean 'all services allowed'."""
+    """Parse PAWS_ALLOWED_SERVICES: 'all' → None (unrestricted), CSV → frozenset, unset → DEFAULT_ALLOWED_SERVICES."""
     source = env if env is not None else os.environ
     val = source.get("PAWS_ALLOWED_SERVICES", "").strip()
     if val.lower() == "all":
