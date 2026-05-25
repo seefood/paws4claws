@@ -61,14 +61,23 @@ def load_allowed_services(env: dict[str, str] | None = None) -> frozenset[str] |
 
 def validate_arg(arg: str) -> str | None:
     """Return None if valid, error message if not."""
-    if not _ARG_RE.match(arg):
-        return f"paws: argument rejected: '{arg}'"
-    for seq in _BLOCKED_SEQS:
-        if seq in arg:
+    if _ARG_RE.match(arg):
+        for seq in _BLOCKED_SEQS:
+            if seq in arg:
+                return f"paws: argument rejected: '{arg}'"
+        return None
+    # JSON object/array values (e.g. --payload '{"key": "val"}') are safe
+    # because subprocess.run uses shell=False — no shell expansion occurs.
+    if arg.startswith(("{", "[")):
+        try:
+            json.loads(arg)
+        except (ValueError, json.JSONDecodeError):
             return f"paws: argument rejected: '{arg}'"
-    if _BLOCKED_CHARS & set(arg):
-        return f"paws: argument rejected: '{arg}'"
-    return None
+        for seq in _BLOCKED_SEQS:
+            if seq in arg:
+                return f"paws: argument rejected: '{arg}'"
+        return None
+    return f"paws: argument rejected: '{arg}'"
 
 
 def check_allowlist(service: str, allowed: frozenset[str] | None) -> str | None:
