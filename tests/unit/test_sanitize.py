@@ -64,6 +64,52 @@ def test_nul_rejected():
     assert err is not None
 
 
+def test_jmespath_array_notation_allowed():
+    """--query expressions with bracket notation must pass through."""
+    assert validate_arg("Reservations[*].Instances[*].InstanceId") is None
+
+
+def test_jmespath_multiselect_hash_allowed():
+    """JMESPath multiselect-hash with curly braces mid-string must pass through."""
+    assert validate_arg("Reservations[*].Instances[*].{ID:InstanceId,State:State.Name}") is None
+
+
+def test_jmespath_index_allowed():
+    assert validate_arg("Instances[0].PublicIpAddress") is None
+
+
+def test_json_object_allowed():
+    """JSON object payloads (e.g. lambda --payload) must pass through."""
+    assert validate_arg('{"request_origin": "Ester via Signal"}') is None
+
+
+def test_json_array_allowed():
+    """JSON array payloads (e.g. logs --log-events) must pass through."""
+    assert validate_arg('[{"timestamp": 1716638400000, "message": "hello"}]') is None
+
+
+def test_json_nested_allowed():
+    assert validate_arg('{"a": {"b": [1, 2, 3]}}') is None
+
+
+def test_json_with_subshell_rejected():
+    """$(…) inside a JSON value must still be blocked."""
+    err = validate_arg('{"cmd": "$(id)"}')
+    assert err is not None
+
+
+def test_json_with_path_traversal_rejected():
+    """.. inside a JSON value must still be blocked."""
+    err = validate_arg('{"path": "../../etc/passwd"}')
+    assert err is not None
+
+
+def test_invalid_json_rejected():
+    """Strings starting with { that aren't valid JSON are rejected."""
+    err = validate_arg("{not valid json}")
+    assert err is not None
+
+
 def test_default_service_passes():
     assert check_allowlist("s3", DEFAULT_ALLOWED_SERVICES) is None
     assert check_allowlist("sts", DEFAULT_ALLOWED_SERVICES) is None
