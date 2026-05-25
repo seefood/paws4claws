@@ -31,7 +31,7 @@ MAX_OUTPUT_BYTES = 10 * 1024 * 1024  # 10 MB
 TIMEOUT_SECONDS = 120
 PORT = int(os.environ.get("PAWS_PORT", "7142"))
 
-_ARG_RE = re.compile(r"^[A-Za-z0-9:/_\-\.@=,*+%~]+$")
+_ARG_RE = re.compile(r"^[A-Za-z0-9:/_\-\.@=,*+%~\[\]{}]+$")
 _BLOCKED_SEQS = ("$(", "..")
 _BLOCKED_CHARS = frozenset("$`;\n\x00|&<>()\\ ")
 

@@ -64,6 +64,20 @@ def test_nul_rejected():
     assert err is not None
 
 
+def test_jmespath_array_notation_allowed():
+    """--query expressions with bracket notation must pass through."""
+    assert validate_arg("Reservations[*].Instances[*].InstanceId") is None
+
+
+def test_jmespath_multiselect_hash_allowed():
+    """JMESPath multiselect-hash with curly braces mid-string must pass through."""
+    assert validate_arg("Reservations[*].Instances[*].{ID:InstanceId,State:State.Name}") is None
+
+
+def test_jmespath_index_allowed():
+    assert validate_arg("Instances[0].PublicIpAddress") is None
+
+
 def test_json_object_allowed():
     """JSON object payloads (e.g. lambda --payload) must pass through."""
     assert validate_arg('{"request_origin": "Ester via Signal"}') is None
