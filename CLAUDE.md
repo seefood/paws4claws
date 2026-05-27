@@ -43,24 +43,25 @@ The repo uses [prek](https://github.com/j178/prek) (a Rust pre-commit runner). H
 
 1. Service allowlist — `args[0]` must be in the allowed set (or allowlist is `None`)
 1. Per-arg character filter — `validate_arg()` enforces `[A-Za-z0-9:/_\-\.@=,*+%~]+`, blocks `..`, `$(`, and a set of shell-special chars
-1. File-I/O guard — `check_file_io()` returns 501 for `s3 cp/mv/sync` with local path args; S3-to-S3, S3-to-stdout (`-`), and stdin upload (`-` source + piped stdin) are allowed
+1. File-I/O guard — `check_file_io()` returns 501 for `s3 cp/mv/sync` with local path args unless covered by v0.3 `files`; S3-to-S3, S3-to-stdout (`-`), stdin upload, and inline files are allowed
 
 **Wire protocol:**
 
-- `POST /invoke` — `{"args": [...]}` or `{"args": [...], "stdin": "<base64>"}` → `{"exitCode": N, "stdout": "...", "stderr": "..."}`
+- `POST /invoke` — `{"args": [...]}`, optional `"stdin": "<base64>"`, optional `"files": [{"argIndex": N, "content": "<base64>"}]` → `{"exitCode": N, "stdout": "...", "stderr": "..."}`
 - Optional `stdin` field: base64-encoded bytes, not sanitized; 10 MB cap; invalid base64 → 400
+- Optional `files` field: per-arg inline file content; 10 MB per file; daemon materializes `/tmp/paws-*`
 - `GET /health` — `{"ok": true}` (no auth)
 - `401` bad/missing token · `403` allowlist or sanitize · `400` malformed · `501` file I/O · `200` always for exec (check `exitCode`)
 
-**Wrapper** (`wrapper/aws`): POSIX shell, depends only on `curl` and `jq`. Drop into agent containers at `/usr/local/bin/aws`. Reads `PAWS_TOKEN` (required) and `PAWS_URL` (defaults to `http://paws:7142`). Detects piped stdin with `[ ! -t 0 ]`, base64-encodes it into the request payload.
+**Wrapper** (`wrapper/aws` + `wrapper/file_allowlist.sh`): POSIX shell, depends only on `curl` and `jq`. Install `aws` at `/usr/local/bin/aws` and `file_allowlist.sh` at `/usr/local/lib/paws/file_allowlist.sh`. Inlines local files only for S3 positional paths and known `--flag` + `file://`/`fileb://` pairs (see [docs/aws-file-input.md](docs/aws-file-input.md)).
 
 **Integration tests** (`tests/integration/test_server.py`): spin up a real `ThreadingHTTPServer` on a random port (port 0) in-process via a `scope="module"` pytest fixture. `subprocess.run` is patched via `unittest.mock.patch`. No Docker required.
 
-**AWS CLI file input catalog:** [docs/aws-file-input.md](docs/aws-file-input.md) — verbs/parameters for v2 stdin and v3 file passing.
+**AWS CLI file input catalog:** [docs/aws-file-input.md](docs/aws-file-input.md) — verbs/parameters for v0.2 stdin and v0.3 file passing.
 
 ## Token configuration
 
-Tokens are set as env vars on the daemon container: `PAWS_TOKEN_<LABEL>=<hex>`. Generate with `openssl rand -hex 32`. A daemon with zero token env vars refuses to start. In v1, all tokens authorize the same IAM credentials.
+Tokens are set as env vars on the daemon container: `PAWS_TOKEN_<LABEL>=<hex>`. Generate with `openssl rand -hex 32`. A daemon with zero token env vars refuses to start. In v0.1, all tokens authorize the same IAM credentials.
 
 ## CI / Publishing
 

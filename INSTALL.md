@@ -54,7 +54,7 @@ ______________________________________________________________________
 ## 3. Generate a bearer token
 
 Each agent container gets its own token. All tokens authorize the same IAM
-credentials in v1. Generate one per agent (or one per agent group):
+credentials in v0.1. Generate one per agent (or one per agent group):
 
 ```sh
 openssl rand -hex 32
@@ -144,15 +144,17 @@ Two things are required inside each agent container:
 
 ### Install the wrapper
 
-Copy `wrapper/aws` from this repo into the agent image at build time:
+Copy `wrapper/aws` and `wrapper/file_allowlist.sh` from this repo into the agent image at build time:
 
 ```dockerfile
+COPY --chmod=755 wrapper/file_allowlist.sh /usr/local/lib/paws/file_allowlist.sh
 COPY --chmod=755 wrapper/aws /usr/local/bin/aws
 ```
 
 Or inject it at runtime if you cannot modify the agent image:
 
 ```sh
+docker cp wrapper/file_allowlist.sh <agent-container>:/usr/local/lib/paws/file_allowlist.sh
 docker cp wrapper/aws <agent-container>:/usr/local/bin/aws
 docker exec <agent-container> chmod +x /usr/local/bin/aws
 ```
@@ -265,7 +267,7 @@ This section summarises everything an agent skill needs to know.
 - The daemon never returns credentials. All errors from the proxy start with
   `paws:` on stderr.
 
-### v1 limitations the agent must know
+### v0.1 limitations the agent must know
 
 - `aws s3 cp s3://bucket/key /local/path` — **blocked** (local destination)
 - `aws s3 cp /local/path s3://bucket/key` — **blocked** (local source)
@@ -288,7 +290,8 @@ This section summarises everything an agent skill needs to know.
 
 ### Example skills in this repo
 
-| File                                                                                     | Purpose                                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`examples/nanoclaw/paws-aws.md`](examples/nanoclaw/paws-aws.md)                         | In-agent skill — tells the agent how to use the `aws` wrapper (usage patterns, v1 limitations, error signals)                                                             |
-| [`examples/nanoclaw/add-paws4claws/SKILL.md`](examples/nanoclaw/add-paws4claws/SKILL.md) | Operator/setup skill — step-by-step instructions for wiring nanoclaw agent containers to a PAWS daemon, including the `NO_PROXY` gotcha when an HTTP proxy is in the path |
+| File                                                                                     | Purpose                                                                            |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [`examples/nanoclaw/README.md`](examples/nanoclaw/README.md)                             | Why there are two nanoclaw skills (agent vs operator)                              |
+| [`examples/nanoclaw/use-paws/SKILL.md`](examples/nanoclaw/use-paws/SKILL.md)             | In-agent skill — how to use the `aws` wrapper (usage, file I/O, errors)            |
+| [`examples/nanoclaw/add-paws4claws/SKILL.md`](examples/nanoclaw/add-paws4claws/SKILL.md) | Operator skill — wiring nanoclaw to a PAWS daemon (`NO_PROXY`, Dockerfile, tokens) |

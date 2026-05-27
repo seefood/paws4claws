@@ -26,16 +26,26 @@ RESPONSE=$(curl -s \
 echo "$RESPONSE" | jq .
 
 echo ""
-echo "=== Local file copy (expect 501) ==="
+echo "=== Local file copy without files payload (expect 501) ==="
 RESPONSE=$(curl -s \
 	-H "Authorization: Bearer $PAWS_TOKEN" \
 	-H "Content-Type: application/json" \
-	-d '{"args": ["s3", "cp", "s3://bucket/key", "/tmp/test"]}' \
+	-d '{"args": ["s3", "cp", "./missing-local", "s3://bucket/key"]}' \
 	"$PAWS_URL/invoke")
 echo "$RESPONSE" | jq .
 
 echo ""
-echo "=== Stdin upload (expect 400 without real bucket, or AWS error in stderr) ==="
+echo "=== v0.3 file upload (expect AWS error without real bucket) ==="
+FILE_B64=$(printf 'smoke-file-bytes' | base64 | tr -d '\n')
+RESPONSE=$(curl -s \
+	-H "Authorization: Bearer $PAWS_TOKEN" \
+	-H "Content-Type: application/json" \
+	-d "{\"args\": [\"s3\", \"cp\", \"./smoke.bin\", \"s3://bucket/smoke-key\"], \"files\": [{\"argIndex\": 2, \"content\": \"$FILE_B64\"}]}" \
+	"$PAWS_URL/invoke")
+echo "$RESPONSE" | jq .
+
+echo ""
+echo "=== Stdin upload (expect AWS error without real bucket) ==="
 STDIN_B64=$(printf 'smoke-test-payload' | base64 | tr -d '\n')
 RESPONSE=$(curl -s \
 	-H "Authorization: Bearer $PAWS_TOKEN" \

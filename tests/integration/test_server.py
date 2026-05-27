@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import subprocess
 import threading
 import urllib.error
@@ -10,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from paws import DEFAULT_ALLOWED_SERVICES, MAX_STDIN_BYTES, make_handler
 
+from tests.file_commands import FILE_COMMAND_CASES
 from tests.stdin_commands import STDIN_COMMAND_CASES, STDIN_COMMAND_REQUIRES_ALLOWLIST
 
 TOKENS = frozenset({"test-token-xyz"})
@@ -272,6 +274,69 @@ def test_stdin_command_extra_services_with_unrestricted_allowlist(unrestricted_u
     assert status == 200, body
     run_mock.assert_called_once()
     assert run_mock.call_args.kwargs["input"] == case.stdin_bytes
+
+
+@pytest.mark.parametrize("case", FILE_COMMAND_CASES, ids=lambda c: c.id)
+def test_file_command_reaches_subprocess(all_services_url, case):
+    """Inline files are materialized and substituted before subprocess.run."""
+    args = list(case.args)
+    args[case.arg_index] = "./upload.bin"
+    file_b64 = base64.b64encode(case.file_bytes).decode()
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = b""
+    mock.stderr = b""
+    with patch("paws.subprocess.run", return_value=mock) as run_mock:
+        with patch("paws.cleanup_temp_files") as cleanup_mock:
+            status, body = _post(
+                f"{all_services_url}/invoke",
+                {
+                    "args": args,
+                    "files": [{"argIndex": case.arg_index, "content": file_b64}],
+                },
+                token="test-token-xyz",
+            )
+    assert status == 200, body
+    run_mock.assert_called_once()
+    exec_argv = run_mock.call_args.args[0]
+    assert exec_argv[0] == "aws"
+    temp_path = exec_argv[case.arg_index + 1]
+    assert os.path.basename(temp_path).startswith("paws-")
+    cleanup_mock.assert_called_once()
+
+
+def test_s3_cp_local_upload_allowed_with_files(base_url):
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = b""
+    mock.stderr = b""
+    content_b64 = base64.b64encode(b"payload").decode()
+    with patch("paws.subprocess.run", return_value=mock) as run_mock:
+        status, body = _post(
+            f"{base_url}/invoke",
+            {
+                "args": ["s3", "cp", "./local.bin", "s3://bucket/key"],
+                "files": [{"argIndex": 2, "content": content_b64}],
+            },
+            token="test-token-xyz",
+        )
+    assert status == 200
+    assert body["exitCode"] == 0
+    exec_argv = run_mock.call_args.args[0]
+    assert os.path.basename(exec_argv[3]).startswith("paws-")
+
+
+def test_invalid_files_is_400(base_url):
+    status, body = _post(
+        f"{base_url}/invoke",
+        {
+            "args": ["s3", "cp", "./local", "s3://bucket/key"],
+            "files": [{"argIndex": 2, "content": "!!!bad!!!"}],
+        },
+        token="test-token-xyz",
+    )
+    assert status == 400
+    assert body["error"] == "bad_request"
 
 
 # ── subprocess edge cases ──────────────────────────────────────────────────────

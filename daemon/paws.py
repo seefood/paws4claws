@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ DEFAULT_ALLOWED_SERVICES = frozenset(
 FILE_IO_SUBCOMMANDS = frozenset({"cp", "mv", "sync"})
 MAX_OUTPUT_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_STDIN_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 TIMEOUT_SECONDS = 120
 PORT = int(os.environ.get("PAWS_PORT", "7142"))
 
@@ -92,18 +94,25 @@ def check_allowlist(service: str, allowed: frozenset[str] | None) -> str | None:
     return None
 
 
-def check_file_io(args: list[str]) -> str | None:
-    """Return None if OK, error message if local file I/O detected."""
+def check_file_io(
+    args: list[str],
+    file_indices: frozenset[int] | None = None,
+) -> str | None:
+    """Return None if OK, error message if local file I/O detected without inline files."""
     if len(args) < 2 or args[0] != "s3" or args[1] not in FILE_IO_SUBCOMMANDS:
         return None
-    for arg in args[2:]:
-        if arg.startswith("--"):
+    covered = file_indices or frozenset()
+    for i, arg in enumerate(args):
+        if i < 2 or arg.startswith("--"):
             continue
         if not arg.startswith("s3://") and arg != "-":
+            if i in covered:
+                continue
             return (
-                "paws: local file I/O is not supported. "
-                "Use S3-to-S3, S3-to-stdout (`-`), or pipe data: "
-                "`echo data | aws s3 cp - s3://bucket/key`. "
+                "paws: local file I/O is not supported without inline file content. "
+                "Use S3-to-S3, S3-to-stdout (`-`), pipe data "
+                "(`echo data | aws s3 cp - s3://bucket/key`), or pass the file via "
+                "the v0.3 files payload. "
                 "See https://github.com/seefood/paws4claws for the roadmap."
             )
     return None
@@ -122,6 +131,74 @@ def decode_stdin(raw: str | None) -> tuple[bytes | None, str | None]:
     if len(data) > MAX_STDIN_BYTES:
         return None, f"paws: stdin exceeds {MAX_STDIN_BYTES} byte limit"
     return data, None
+
+
+def decode_files(raw: list | None) -> tuple[list[tuple[int, bytes]], str | None]:
+    """Decode optional files array. Returns ([(argIndex, bytes), ...], error)."""
+    if raw is None:
+        return [], None
+    if not isinstance(raw, list):
+        return [], "files must be a list"
+    seen: set[int] = set()
+    result: list[tuple[int, bytes]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return [], "files entries must be objects"
+        if "argIndex" not in item or "content" not in item:
+            return [], "files entries require argIndex and content"
+        idx = item["argIndex"]
+        if not isinstance(idx, int) or idx < 0:
+            return [], "argIndex must be a non-negative integer"
+        if idx in seen:
+            return [], f"duplicate argIndex in files: {idx}"
+        seen.add(idx)
+        content = item["content"]
+        if not isinstance(content, str):
+            return [], "files content must be a string"
+        try:
+            data = base64.b64decode(content, validate=True)
+        except (binascii.Error, ValueError):
+            return [], f"files[{idx}] content must be valid base64"
+        if len(data) > MAX_FILE_BYTES:
+            return [], f"paws: file at argIndex {idx} exceeds {MAX_FILE_BYTES} byte limit"
+        result.append((idx, data))
+    return result, None
+
+
+def _substitute_file_arg(original: str, temp_path: str) -> str:
+    if original.startswith("fileb://"):
+        return f"fileb://{temp_path}"
+    if original.startswith("file://"):
+        return f"file://{temp_path}"
+    return temp_path
+
+
+def materialize_files(
+    args: list[str],
+    files: list[tuple[int, bytes]],
+) -> tuple[list[str], list[str], str | None]:
+    """Write file blobs to temp paths and substitute argv. Returns (exec_args, temp_paths, error)."""
+    if not files:
+        return list(args), [], None
+    exec_args = list(args)
+    temp_paths: list[str] = []
+    for idx, data in files:
+        if idx >= len(exec_args):
+            return exec_args, temp_paths, f"argIndex {idx} out of range"
+        with tempfile.NamedTemporaryFile(prefix="paws-", delete=False) as handle:
+            handle.write(data)
+            path = handle.name
+        temp_paths.append(path)
+        exec_args[idx] = _substitute_file_arg(exec_args[idx], path)
+    return exec_args, temp_paths, None
+
+
+def cleanup_temp_files(paths: list[str]) -> None:
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 # ── HTTP handler ───────────────────────────────────────────────────────────────
@@ -170,6 +247,7 @@ class PawsHandler(BaseHTTPRequestHandler):
                 raise ValueError("args must be a non-empty list")
             args = [str(a) for a in args]
             stdin_raw = body.get("stdin")
+            files_raw = body.get("files")
         except Exception as exc:
             self._send_json(400, {"error": "bad_request", "message": str(exc)})
             return
@@ -178,6 +256,13 @@ class PawsHandler(BaseHTTPRequestHandler):
         if err:
             self._send_json(400, {"error": "bad_request", "message": err})
             return
+
+        decoded_files, err = decode_files(files_raw)
+        if err:
+            self._send_json(400, {"error": "bad_request", "message": err})
+            return
+
+        file_indices = frozenset(idx for idx, _ in decoded_files)
 
         err = check_allowlist(args[0], self.allowed_services)
         if err:
@@ -190,14 +275,27 @@ class PawsHandler(BaseHTTPRequestHandler):
                 self._send_json(403, {"error": "forbidden", "message": err})
                 return
 
-        err = check_file_io(args)
+        err = check_file_io(args, file_indices)
         if err:
             self._send_json(501, {"error": "not_implemented", "message": err})
             return
 
+        exec_args, temp_paths, err = materialize_files(args, decoded_files)
+        if err:
+            cleanup_temp_files(temp_paths)
+            self._send_json(400, {"error": "bad_request", "message": err})
+            return
+
+        for arg in exec_args:
+            err = validate_arg(arg)
+            if err:
+                cleanup_temp_files(temp_paths)
+                self._send_json(403, {"error": "forbidden", "message": err})
+                return
+
         try:
             result = subprocess.run(
-                ["aws", *args],
+                ["aws", *exec_args],
                 input=stdin_bytes,
                 shell=False,
                 capture_output=True,
@@ -224,6 +322,8 @@ class PawsHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        finally:
+            cleanup_temp_files(temp_paths)
 
         stdout_too_big = len(result.stdout) > MAX_OUTPUT_BYTES
         stderr_too_big = len(result.stderr) > MAX_OUTPUT_BYTES
