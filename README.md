@@ -54,12 +54,12 @@ PAWS isolation is required.
 
 ## Roadmap
 
-| Version | Feature                                                                     |
-| ------- | --------------------------------------------------------------------------- |
-| **v1**  | argv forwarding, stdout/stderr return, per-client tokens, service allowlist |
-| **v2**  | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`) — **done**   |
-| **v3**  | file passing (wrapper detects local file args, inlines them in the request) |
-| future  | multiple IAM profiles mapped to tokens, streaming output                    |
+| Version | Feature                                                                                                         |
+| ------- | --------------------------------------------------------------------------------------------------------------- |
+| **v1**  | argv forwarding, stdout/stderr return, per-client tokens, service allowlist                                     |
+| **v2**  | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`) — **done**                                       |
+| **v3**  | file passing (wrapper detects local file args, inlines them in the request) — [catalog](docs/aws-file-input.md) |
+| future  | multiple IAM profiles mapped to tokens, streaming output                                                        |
 
 ## Security model
 
@@ -94,3 +94,4 @@ In the spirit of the \*claw world, I am including a [sample nanoclaw skill](exam
 
 - [INSTALL.md](INSTALL.md) — setup, docker-compose, agent wiring
 - [DESIGN.md](DESIGN.md) — full architecture, wire protocol, sanitization rules
+- [docs/aws-file-input.md](docs/aws-file-input.md) — AWS CLI file/stdin input catalog (v2 + v3 target)

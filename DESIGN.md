@@ -85,11 +85,14 @@ Network isolation is a second layer of defense alongside token auth.
 - stdin is not sanitized — it is opaque data
 - 10 MB decoded stdin cap (symmetric with stdout/stderr output cap)
 
-### v3 — file passing (tentative)
+### v3 — file passing (next release)
 
-- Wrapper detects args that are existing local files or `file://` URIs
+- Wrapper detects args that are existing local files or `file://` / `fileb://` URIs
 - Encodes file content inline in a `"files"` array with `argIndex`
 - Daemon materializes temp files, substitutes paths in argv, cleans up after exec
+- **Target commands:** see [docs/aws-file-input.md](docs/aws-file-input.md) for the
+  full catalog of AWS CLI verbs and parameters that accept file content — v2
+  coverage, v3 gaps, and known AWS CLI limitations (`--cli-input-json file:///dev/stdin` is broken)
 - Open questions: distinguishing file paths from S3 keys/log group names, size limits
 
 ### Future
@@ -131,6 +134,9 @@ Content-Type: application/json
 ```
 
 Invalid base64 or stdin exceeding 10 MB decoded → `400 bad_request`.
+
+For a full list of AWS CLI commands that accept file or stdin input — including
+what v2 covers and what v3 must add — see [docs/aws-file-input.md](docs/aws-file-input.md).
 
 ### v1 Response
 

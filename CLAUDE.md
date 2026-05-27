@@ -56,6 +56,8 @@ The repo uses [prek](https://github.com/j178/prek) (a Rust pre-commit runner). H
 
 **Integration tests** (`tests/integration/test_server.py`): spin up a real `ThreadingHTTPServer` on a random port (port 0) in-process via a `scope="module"` pytest fixture. `subprocess.run` is patched via `unittest.mock.patch`. No Docker required.
 
+**AWS CLI file input catalog:** [docs/aws-file-input.md](docs/aws-file-input.md) — verbs/parameters for v2 stdin and v3 file passing.
+
 ## Token configuration
 
 Tokens are set as env vars on the daemon container: `PAWS_TOKEN_<LABEL>=<hex>`. Generate with `openssl rand -hex 32`. A daemon with zero token env vars refuses to start. In v1, all tokens authorize the same IAM credentials.
