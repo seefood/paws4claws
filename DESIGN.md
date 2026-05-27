@@ -69,7 +69,7 @@ Network isolation is a second layer of defense alongside token auth.
 
 ## Roadmap
 
-### v1 — stdout/stderr (current focus)
+### v1 — stdout/stderr
 
 - Daemon container on a dedicated Docker network
 - `POST /invoke` accepts `{"args": [...]}`, returns `{"exitCode", "stdout", "stderr"}`
@@ -77,12 +77,13 @@ Network isolation is a second layer of defense alongside token auth.
 - Multiple client tokens, single IAM profile
 - Drop-in `aws` wrapper script (shell + curl + jq)
 
-### v2 — stdin passthrough
+### v2 — stdin passthrough (current)
 
 - Wrapper detects piped stdin, base64-encodes it, adds `"stdin"` to payload
 - Daemon decodes and pipes to subprocess stdin
 - Enables: `echo data | aws s3 cp - s3://bucket/key`
 - stdin is not sanitized — it is opaque data
+- 10 MB decoded stdin cap (symmetric with stdout/stderr output cap)
 
 ### v3 — file passing (tentative)
 
@@ -112,6 +113,24 @@ Content-Type: application/json
 ```
 
 `args` is the argv as split by the shell. `args[0]` is the AWS service name.
+
+### v2 Request extension
+
+Optional `"stdin"` field — base64-encoded raw bytes. Omitted when stdin is not piped
+(backward compatible with v1 clients). Not sanitized.
+
+```
+POST /invoke
+Authorization: Bearer <PAWS_TOKEN>
+Content-Type: application/json
+
+{
+  "args": ["s3", "cp", "-", "s3://my-bucket/key"],
+  "stdin": "aGVsbG8K"
+}
+```
+
+Invalid base64 or stdin exceeding 10 MB decoded → `400 bad_request`.
 
 ### v1 Response
 
@@ -215,9 +234,8 @@ exit "$(printf '%s' "$RESPONSE" | jq -r '.exitCode')"
 `PAWS_TOKEN` is injected at container startup. Dependencies: `curl`, `jq` — standard
 in any Linux image.
 
-## What's Not in Scope (v1)
+## What's Not in Scope (v1–v2)
 
-- Stdin passthrough — v2
 - File passing — v3
 - Multiple IAM profiles — future
 - Streaming output — future

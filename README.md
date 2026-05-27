@@ -2,10 +2,11 @@
 
 # paws4claws — Proxied AWS CLI
 
-A credential-isolation daemon for AI agent containers. Agents run AWS CLI commands
-without ever holding credentials; a dedicated sidecar container holds them, executes
-the CLI, and returns the result. The agent can pipe output through `jq`, `grep`, etc.
-before it ever reaches the LLM.
+A credential-isolation daemon for AI agent containers. Agents run **AWS CLI**
+(`aws`) commands without ever holding credentials — not boto3, not the AWS SDKs for
+Python/JS/Go, or any other programmatic client. A dedicated sidecar container holds
+credentials, runs the real `aws` CLI, and returns the result. The agent can pipe
+output through `jq`, `grep`, etc. before it ever reaches the LLM.
 
 ## Problem
 
@@ -46,12 +47,17 @@ for each.
 The paws container can get the dredentials from IMDSv2, ~/.aws/ files or the
 environment, as it runs the real `aws` CLI v2.
 
+**Scope:** PAWS intercepts the `aws` shell command via a wrapper script. Python code
+using boto3 (or `@aws-sdk/*`, etc.) talks to AWS APIs directly and is out of scope —
+use IAM-scoped credentials in those processes separately, or shell out to `aws` if
+PAWS isolation is required.
+
 ## Roadmap
 
 | Version | Feature                                                                     |
 | ------- | --------------------------------------------------------------------------- |
 | **v1**  | argv forwarding, stdout/stderr return, per-client tokens, service allowlist |
-| **v2**  | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`)              |
+| **v2**  | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`) — **done**   |
 | **v3**  | file passing (wrapper detects local file args, inlines them in the request) |
 | future  | multiple IAM profiles mapped to tokens, streaming output                    |
 

@@ -142,14 +142,14 @@ docker exec <container-name> bash -c 'aws sts get-caller-identity'
 
 ## v1 limitations
 
-Local file I/O is blocked by the proxy — use these alternatives:
+Local file path args are blocked by the proxy — use these alternatives:
 
-| Blocked                        | Use instead                             |
-| ------------------------------ | --------------------------------------- |
-| `aws s3 cp s3://… /local/path` | `aws s3 cp s3://… -` (stream to stdout) |
-| `aws s3 cp /local/path s3://…` | stream from stdin (not yet supported)   |
-| `aws s3 sync ./local s3://…`   | not available                           |
-| `aws s3 cp s3://src s3://dst`  | ✅ server-side copy                     |
+| Blocked                        | Use instead                                    |
+| ------------------------------ | ---------------------------------------------- |
+| `aws s3 cp s3://… /local/path` | `aws s3 cp s3://… -` (stream to stdout)        |
+| `aws s3 cp /local/path s3://…` | `echo data \| aws s3 cp - s3://…` (pipe stdin) |
+| `aws s3 sync ./local s3://…`   | not available                                  |
+| `aws s3 cp s3://src s3://dst`  | ✅ server-side copy                            |
 
 ## Troubleshooting
 

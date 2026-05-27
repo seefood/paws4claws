@@ -1,3 +1,4 @@
+import base64
 import json
 import subprocess
 import threading
@@ -7,7 +8,9 @@ from http.server import ThreadingHTTPServer
 from unittest.mock import MagicMock, patch
 
 import pytest
-from paws import make_handler
+from paws import DEFAULT_ALLOWED_SERVICES, MAX_STDIN_BYTES, make_handler
+
+from tests.stdin_commands import STDIN_COMMAND_CASES, STDIN_COMMAND_REQUIRES_ALLOWLIST
 
 TOKENS = frozenset({"test-token-xyz"})
 ALLOWED = frozenset({"s3", "sts"})
@@ -17,6 +20,30 @@ ALLOWED = frozenset({"s3", "sts"})
 def base_url():
     """Spin up a real ThreadingHTTPServer on a random port for the module."""
     handler = make_handler(TOKENS, ALLOWED)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{port}"
+    httpd.shutdown()
+
+
+@pytest.fixture(scope="module")
+def all_services_url():
+    """Server with the default PAWS service allowlist (all stdin-capable services)."""
+    handler = make_handler(TOKENS, DEFAULT_ALLOWED_SERVICES)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{port}"
+    httpd.shutdown()
+
+
+@pytest.fixture(scope="module")
+def unrestricted_url():
+    """Server with PAWS_ALLOWED_SERVICES=all (None allowlist)."""
+    handler = make_handler(TOKENS, None)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -145,7 +172,7 @@ def test_local_file_cp_is_501(base_url):
     )
     assert status == 501
     assert body["error"] == "not_implemented"
-    assert "not supported in v1" in body["message"]
+    assert "not supported" in body["message"]
 
 
 def test_s3_to_stdout_is_allowed(base_url):
@@ -161,6 +188,90 @@ def test_s3_to_stdout_is_allowed(base_url):
         )
     assert status == 200
     assert body["stdout"] == "file content here"
+
+
+def test_stdin_passthrough(base_url):
+    """Optional stdin field is decoded and passed to subprocess.run(input=...)."""
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = b"upload ok"
+    mock.stderr = b""
+    stdin_b64 = "aGVsbG8K"  # "hello\n"
+    with patch("paws.subprocess.run", return_value=mock) as run_mock:
+        status, body = _post(
+            f"{base_url}/invoke",
+            {"args": ["s3", "cp", "-", "s3://bucket/key"], "stdin": stdin_b64},
+            token="test-token-xyz",
+        )
+    assert status == 200
+    assert body["exitCode"] == 0
+    run_mock.assert_called_once()
+    assert run_mock.call_args.kwargs["input"] == b"hello\n"
+
+
+def test_invalid_stdin_is_400(base_url):
+    status, body = _post(
+        f"{base_url}/invoke",
+        {"args": ["s3", "cp", "-", "s3://bucket/key"], "stdin": "!!!bad!!!"},
+        token="test-token-xyz",
+    )
+    assert status == 400
+    assert body["error"] == "bad_request"
+    assert "base64" in body["message"]
+
+
+def test_stdin_size_cap_is_400(base_url):
+    import base64
+
+    oversized = base64.b64encode(b"x" * (MAX_STDIN_BYTES + 1)).decode()
+    status, body = _post(
+        f"{base_url}/invoke",
+        {"args": ["s3", "cp", "-", "s3://bucket/key"], "stdin": oversized},
+        token="test-token-xyz",
+    )
+    assert status == 400
+    assert body["error"] == "bad_request"
+    assert "exceeds" in body["message"]
+
+
+@pytest.mark.parametrize("case", STDIN_COMMAND_CASES, ids=lambda c: c.id)
+def test_stdin_command_reaches_subprocess(all_services_url, case):
+    """Each documented stdin argv pattern passes sanitization and wires input= bytes."""
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = b""
+    mock.stderr = b""
+    stdin_b64 = base64.b64encode(case.stdin_bytes).decode()
+    with patch("paws.subprocess.run", return_value=mock) as run_mock:
+        status, body = _post(
+            f"{all_services_url}/invoke",
+            {"args": case.args, "stdin": stdin_b64},
+            token="test-token-xyz",
+        )
+    assert status == 200, body
+    assert body["exitCode"] == 0
+    run_mock.assert_called_once()
+    assert run_mock.call_args.kwargs["input"] == case.stdin_bytes
+    assert run_mock.call_args.args[0] == ["aws", *case.args]
+
+
+@pytest.mark.parametrize("case", STDIN_COMMAND_REQUIRES_ALLOWLIST, ids=lambda c: c.id)
+def test_stdin_command_extra_services_with_unrestricted_allowlist(unrestricted_url, case):
+    """ecs/s3api stdin shapes reach subprocess when allowlist is unrestricted."""
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = b""
+    mock.stderr = b""
+    stdin_b64 = base64.b64encode(case.stdin_bytes).decode()
+    with patch("paws.subprocess.run", return_value=mock) as run_mock:
+        status, body = _post(
+            f"{unrestricted_url}/invoke",
+            {"args": case.args, "stdin": stdin_b64},
+            token="test-token-xyz",
+        )
+    assert status == 200, body
+    run_mock.assert_called_once()
+    assert run_mock.call_args.kwargs["input"] == case.stdin_bytes
 
 
 # ── subprocess edge cases ──────────────────────────────────────────────────────

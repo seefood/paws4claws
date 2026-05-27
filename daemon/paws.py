@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """PAWS — Proxied AWS Shell daemon."""
 
+import base64
+import binascii
 import json
 import os
 import re
@@ -28,6 +30,7 @@ DEFAULT_ALLOWED_SERVICES = frozenset(
 )
 FILE_IO_SUBCOMMANDS = frozenset({"cp", "mv", "sync"})
 MAX_OUTPUT_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_STDIN_BYTES = 10 * 1024 * 1024  # 10 MB
 TIMEOUT_SECONDS = 120
 PORT = int(os.environ.get("PAWS_PORT", "7142"))
 
@@ -98,11 +101,27 @@ def check_file_io(args: list[str]) -> str | None:
             continue
         if not arg.startswith("s3://") and arg != "-":
             return (
-                "paws: local file I/O is not supported in v1. "
-                "Only S3-to-S3 and S3-to-stdout transfers are allowed. "
+                "paws: local file I/O is not supported. "
+                "Use S3-to-S3, S3-to-stdout (`-`), or pipe data: "
+                "`echo data | aws s3 cp - s3://bucket/key`. "
                 "See https://github.com/seefood/paws4claws for the roadmap."
             )
     return None
+
+
+def decode_stdin(raw: str | None) -> tuple[bytes | None, str | None]:
+    """Decode optional base64 stdin field. Returns (bytes, error). None bytes = no stdin."""
+    if raw is None:
+        return None, None
+    if not isinstance(raw, str):
+        return None, "stdin must be a string"
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        return None, "stdin must be valid base64"
+    if len(data) > MAX_STDIN_BYTES:
+        return None, f"paws: stdin exceeds {MAX_STDIN_BYTES} byte limit"
+    return data, None
 
 
 # ── HTTP handler ───────────────────────────────────────────────────────────────
@@ -150,8 +169,14 @@ class PawsHandler(BaseHTTPRequestHandler):
             if not isinstance(args, list) or not args:
                 raise ValueError("args must be a non-empty list")
             args = [str(a) for a in args]
+            stdin_raw = body.get("stdin")
         except Exception as exc:
             self._send_json(400, {"error": "bad_request", "message": str(exc)})
+            return
+
+        stdin_bytes, err = decode_stdin(stdin_raw)
+        if err:
+            self._send_json(400, {"error": "bad_request", "message": err})
             return
 
         err = check_allowlist(args[0], self.allowed_services)
@@ -173,6 +198,7 @@ class PawsHandler(BaseHTTPRequestHandler):
         try:
             result = subprocess.run(
                 ["aws", *args],
+                input=stdin_bytes,
                 shell=False,
                 capture_output=True,
                 timeout=TIMEOUT_SECONDS,

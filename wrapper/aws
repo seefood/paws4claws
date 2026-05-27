@@ -7,10 +7,18 @@ PAWS_URL="${PAWS_URL:-http://paws:7142}"
 
 ARGS=$(printf '%s\n' "$@" | jq -R . | jq -sc .)
 
+if [ ! -t 0 ]; then
+	STDIN_B64=$(cat | base64 | tr -d '\n')
+	PAYLOAD=$(jq -n --argjson args "$ARGS" --arg stdin "$STDIN_B64" \
+		'{args: $args, stdin: $stdin}')
+else
+	PAYLOAD=$(jq -n --argjson args "$ARGS" '{args: $args}')
+fi
+
 if ! RESPONSE=$(curl -s \
 	-H "Authorization: Bearer $PAWS_TOKEN" \
 	-H "Content-Type: application/json" \
-	-d "{\"args\": $ARGS}" \
+	-d "$PAYLOAD" \
 	"$PAWS_URL/invoke") || [ -z "$RESPONSE" ]; then
 	echo "paws: daemon unreachable" >&2
 	exit 1
@@ -22,6 +30,6 @@ if printf '%s' "$RESPONSE" | jq -e '.error' >/dev/null 2>&1; then
 	exit 1
 fi
 
-printf '%s' "$RESPONSE" | jq -r '.stdout'
-printf '%s' "$RESPONSE" | jq -r '.stderr' >&2
+printf '%s' "$RESPONSE" | jq -j '.stdout'
+printf '%s' "$RESPONSE" | jq -j '.stderr' >&2
 exit "$(printf '%s' "$RESPONSE" | jq -r '.exitCode')"

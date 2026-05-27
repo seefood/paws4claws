@@ -43,15 +43,16 @@ The repo uses [prek](https://github.com/j178/prek) (a Rust pre-commit runner). H
 
 1. Service allowlist — `args[0]` must be in the allowed set (or allowlist is `None`)
 1. Per-arg character filter — `validate_arg()` enforces `[A-Za-z0-9:/_\-\.@=,*+%~]+`, blocks `..`, `$(`, and a set of shell-special chars
-1. File-I/O guard — `check_file_io()` returns 501 for `s3 cp/mv/sync` with local path args; S3-to-S3 and S3-to-stdout (`-`) are allowed
+1. File-I/O guard — `check_file_io()` returns 501 for `s3 cp/mv/sync` with local path args; S3-to-S3, S3-to-stdout (`-`), and stdin upload (`-` source + piped stdin) are allowed
 
 **Wire protocol:**
 
-- `POST /invoke` — `{"args": [...]}` → `{"exitCode": N, "stdout": "...", "stderr": "..."}`
+- `POST /invoke` — `{"args": [...]}` or `{"args": [...], "stdin": "<base64>"}` → `{"exitCode": N, "stdout": "...", "stderr": "..."}`
+- Optional `stdin` field: base64-encoded bytes, not sanitized; 10 MB cap; invalid base64 → 400
 - `GET /health` — `{"ok": true}` (no auth)
 - `401` bad/missing token · `403` allowlist or sanitize · `400` malformed · `501` file I/O · `200` always for exec (check `exitCode`)
 
-**Wrapper** (`wrapper/aws`): POSIX shell, depends only on `curl` and `jq`. Drop into agent containers at `/usr/local/bin/aws`. Reads `PAWS_TOKEN` (required) and `PAWS_URL` (defaults to `http://paws:7142`).
+**Wrapper** (`wrapper/aws`): POSIX shell, depends only on `curl` and `jq`. Drop into agent containers at `/usr/local/bin/aws`. Reads `PAWS_TOKEN` (required) and `PAWS_URL` (defaults to `http://paws:7142`). Detects piped stdin with `[ ! -t 0 ]`, base64-encodes it into the request payload.
 
 **Integration tests** (`tests/integration/test_server.py`): spin up a real `ThreadingHTTPServer` on a random port (port 0) in-process via a `scope="module"` pytest fixture. `subprocess.run` is patched via `unittest.mock.patch`. No Docker required.
 

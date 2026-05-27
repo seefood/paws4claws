@@ -35,4 +35,14 @@ RESPONSE=$(curl -s \
 echo "$RESPONSE" | jq .
 
 echo ""
+echo "=== Stdin upload (expect 400 without real bucket, or AWS error in stderr) ==="
+STDIN_B64=$(printf 'smoke-test-payload' | base64 | tr -d '\n')
+RESPONSE=$(curl -s \
+	-H "Authorization: Bearer $PAWS_TOKEN" \
+	-H "Content-Type: application/json" \
+	-d "{\"args\": [\"s3\", \"cp\", \"-\", \"s3://bucket/smoke-test-key\"], \"stdin\": \"$STDIN_B64\"}" \
+	"$PAWS_URL/invoke")
+echo "$RESPONSE" | jq .
+
+echo ""
 echo "All smoke checks complete."

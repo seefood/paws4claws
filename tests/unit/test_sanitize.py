@@ -155,14 +155,14 @@ def test_local_dest_blocked():
     """Copying from S3 to a local path is rejected with a v1 limitation message."""
     err = check_file_io(["s3", "cp", "s3://bucket/key", "/tmp/file"])
     assert err is not None
-    assert "not supported in v1" in err
+    assert "not supported" in err
 
 
 def test_local_source_blocked():
     """Copying from a local path to S3 is also rejected in v1."""
     err = check_file_io(["s3", "cp", "/tmp/file", "s3://bucket/key"])
     assert err is not None
-    assert "not supported in v1" in err
+    assert "not supported" in err
 
 
 def test_local_sync_blocked():
