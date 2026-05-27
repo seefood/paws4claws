@@ -7,6 +7,9 @@ description: Install PAWS (paws4claws) as an AWS credential proxy for agent cont
 
 [paws4claws](https://github.com/seefood/paws4claws) runs AWS credentials in a dedicated daemon container. Agent containers get a drop-in `aws` wrapper that proxies calls over HTTP — no credentials, no `.aws` mount, no AWS SDK inside containers.
 
+> **Agent usage** (how to run `aws`, file I/O patterns, errors) is in
+> [`use-paws/SKILL.md`](../use-paws/SKILL.md). This skill is **operator setup only**.
+
 ## How it works
 
 ```
@@ -100,7 +103,8 @@ These changes are checked into `ester2` — no manual edits needed for a fresh c
 - Removed `awscli` from the apt-get install list
 - Added `jq` (required by the wrapper to build JSON payloads)
 - Removed `ln -s /usr/bin/aws /usr/local/bin/aws`
-- Added `COPY --chmod=755 aws /usr/local/bin/aws` (the paws wrapper from `container/aws`)
+- Added `COPY --chmod=755 file_allowlist.sh /usr/local/lib/paws/file_allowlist.sh`
+- Added `COPY --chmod=755 aws /usr/local/bin/aws` (wrapper from `container/aws`, synced from paws4claws `wrapper/`)
 
 ### `src/container-runner.ts`
 
@@ -140,16 +144,14 @@ Or from inside a running agent container (after the agent spawns on a message):
 docker exec <container-name> bash -c 'aws sts get-caller-identity'
 ```
 
-## v1 limitations
+## File I/O limitations
 
-Local file path args are blocked by the proxy — use these alternatives:
-
-| Blocked                        | Use instead                                    |
-| ------------------------------ | ---------------------------------------------- |
-| `aws s3 cp s3://… /local/path` | `aws s3 cp s3://… -` (stream to stdout)        |
-| `aws s3 cp /local/path s3://…` | `echo data \| aws s3 cp - s3://…` (pipe stdin) |
-| `aws s3 sync ./local s3://…`   | not available                                  |
-| `aws s3 cp s3://src s3://dst`  | ✅ server-side copy                            |
+| Blocked / not yet              | Use instead                                       |
+| ------------------------------ | ------------------------------------------------- |
+| `aws s3 cp s3://… /local/path` | `aws s3 cp s3://… - > /local/path` (v0.4 planned) |
+| `aws s3 cp /local/path s3://…` | `aws s3 cp ./local s3://…` (v0.3) or pipe to `-`  |
+| `aws s3 sync ./local s3://…`   | not available (v0.5 planned)                      |
+| `aws s3 cp s3://src s3://dst`  | ✅ server-side copy                               |
 
 ## Troubleshooting
 
@@ -170,7 +172,7 @@ The `PAWS_TOKEN` in the agent container doesn't match any `PAWS_TOKEN_*` in the 
 
 ### `aws` command not found
 
-The wrapper wasn't baked into the image. Confirm `container/aws` exists and the Dockerfile `COPY` line is present, then rebuild with `./container/build.sh`.
+The wrapper wasn't baked into the image. Confirm `container/aws` and `container/file_allowlist.sh` exist (or copy from paws4claws `wrapper/`), Dockerfile `COPY` lines are present, then rebuild with `./container/build.sh`.
 
 ### Daemon not persisting across reboots
 

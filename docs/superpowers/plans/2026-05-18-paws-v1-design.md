@@ -32,7 +32,7 @@ paws4claws/
 │   └── aws              # drop-in shell script for agent containers
 ├── examples/
 │   └── nanoclaw/
-│       └── paws-aws.md  # Claude Code skill for nanoclaw agents
+│       └── use-paws/SKILL.md  # Claude Code skill for nanoclaw agents
 ├── specs/
 │   └── v1/
 │       └── 2026-05-18-paws-v1-design.md
@@ -337,7 +337,7 @@ running on `localhost:7142`. Exercises a real `aws sts get-caller-identity` call
 
 ______________________________________________________________________
 
-## Nanoclaw Integration Skill (`examples/nanoclaw/paws-aws.md`)
+## Nanoclaw Integration Skill (`examples/nanoclaw/use-paws/SKILL.md`)
 
 A Claude Code skill file shipped in this repo for nanoclaw agents to consume. Intended
 to be submitted as a PR to the nanoclaw skills directory once v1 is stable.
@@ -351,7 +351,7 @@ not, and idiomatic patterns for keeping AWS output out of LLM context.
 
 ```
 ---
-name: paws-aws
+name: use-paws
 description: Use AWS CLI via the PAWS proxy — credential-isolated aws calls for nanoclaw agents
 ---
 
@@ -383,7 +383,7 @@ Non-zero exit codes are AWS errors (check stderr). If the proxy itself errors,
 stderr will start with "paws:" — this is a proxy/config issue, not an AWS error.
 ```
 
-The actual skill file is written verbatim to `examples/nanoclaw/paws-aws.md` and
+The actual skill file is written verbatim to `examples/nanoclaw/use-paws/SKILL.md` and
 follows the superpowers skill front-matter format so it can be dropped into any
 nanoclaw agent image's skills directory.
 

@@ -1,0 +1,60 @@
+---
+name: use-paws
+description: Use AWS CLI via the PAWS proxy — credential-isolated aws calls without holding credentials in the agent container
+---
+
+The `aws` command in this container is a proxy wrapper. It forwards your calls to the
+PAWS daemon over HTTP and returns stdout/stderr transparently. You never see credentials.
+
+> **Setup** (Docker network, tokens, Dockerfile) is documented in
+> [`add-paws4claws/SKILL.md`](../add-paws4claws/SKILL.md). This skill is **runtime usage only**.
+
+## Basic usage
+
+Use `aws` exactly as you would the real CLI. **Always pipe or filter output** before it
+reaches your context — raw AWS responses are often large:
+
+```sh
+aws sts get-caller-identity | jq '.Account'
+aws s3 ls s3://my-bucket/prefix/ | grep "\.gz" | head -20
+aws logs describe-log-groups --query 'logGroups[*].logGroupName' --output text
+aws ec2 describe-instances --filters Name=tag:Env,Values=prod \
+  --query 'Reservations[*].Instances[*].InstanceId' --output text
+```
+
+## File I/O (v0.2 / v0.3)
+
+| Goal                  | Command                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| Upload a local file   | `aws s3 cp ./local.bin s3://bucket/key`                                                 |
+| Upload via pipe       | `echo "$DATA" \| aws s3 cp - s3://bucket/key`                                           |
+| Upload via flag + URI | `aws ssm put-parameter --name /p --value file://./secret.txt --type String --overwrite` |
+| Download to stdout    | `aws s3 cp s3://bucket/key -` (pipe or redirect locally)                                |
+| Server-side S3 copy   | `aws s3 cp s3://src s3://dst`                                                           |
+
+File upload only triggers for **S3 positional paths** or **`file://` / `fileb://`**
+after known flags (`--user-data`, `--payload`, `--value`, `--secret-string`,
+`--template-body`, `--policy-document`, `--image-manifest`, etc.). Random args like
+`production` in `aws logs describe-log-groups production` are never treated as files.
+
+## Not yet supported
+
+| Blocked                    | Workaround                                    |
+| -------------------------- | --------------------------------------------- |
+| `aws s3 cp s3://… ./local` | `aws s3 cp s3://… - > ./local` (v0.4 planned) |
+| `aws s3 sync ./dir s3://…` | not available (v0.5 planned)                  |
+
+## Error handling
+
+| stderr starts with         | Meaning                                               |
+| -------------------------- | ----------------------------------------------------- |
+| (nothing, non-zero exit)   | AWS error — read stderr for details                   |
+| `paws:`                    | Proxy error — config, network, or unsupported feature |
+| `paws: daemon unreachable` | PAWS container is down or not on `paws-net`           |
+
+## Environment variables
+
+| Variable     | Required | Default            | Description                                     |
+| ------------ | -------- | ------------------ | ----------------------------------------------- |
+| `PAWS_TOKEN` | ✅       | —                  | Bearer token, injected at container startup     |
+| `PAWS_URL`   | No       | `http://paws:7142` | Daemon address; override for non-default setups |
