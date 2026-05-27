@@ -7,7 +7,7 @@ Two mechanisms:
    file loading; the child reads PAWS-decoded bytes from its stdin fd.
 
 ``--cli-input-json file:///dev/stdin`` does *not* work in AWS CLI v2 (ParamValidation
-error even when stdin is wired). Use inline JSON in args for those commands, or v3
+error even when stdin is wired). Use inline JSON in args for those commands, or v0.3
 file passing for local files.
 
 ECS uses the same broken ``--cli-input-json file:///dev/stdin`` pattern; it is listed
@@ -30,7 +30,7 @@ class StdinCommandCase:
     note: str = ""
 
 
-# Patterns that work with PAWS v2 + default service allowlist.
+# Patterns that work with PAWS v0.2 + default service allowlist.
 STDIN_COMMAND_CASES: tuple[StdinCommandCase, ...] = (
     StdinCommandCase(
         id="s3_cp_upload",

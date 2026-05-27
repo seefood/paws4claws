@@ -54,12 +54,14 @@ PAWS isolation is required.
 
 ## Roadmap
 
-| Version | Feature                                                                                                         |
-| ------- | --------------------------------------------------------------------------------------------------------------- |
-| **v1**  | argv forwarding, stdout/stderr return, per-client tokens, service allowlist                                     |
-| **v2**  | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`) — **done**                                       |
-| **v3**  | file passing (wrapper detects local file args, inlines them in the request) — [catalog](docs/aws-file-input.md) |
-| future  | multiple IAM profiles mapped to tokens, streaming output                                                        |
+| Version  | Feature                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------ |
+| **v0.1** | argv forwarding, stdout/stderr return, per-client tokens, service allowlist                      |
+| **v0.2** | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`) — **done**                        |
+| **v0.3** | file passing (local file args inlined in request) — **done** — [catalog](docs/aws-file-input.md) |
+| **v0.4** | download / output files (`aws s3 cp s3://… ./local`) — planned                                   |
+| **v0.5** | `aws s3 sync` / directory transfers — planned                                                    |
+| future   | streaming output, presigned URL offload for large files                                          |
 
 ## Security model
 
@@ -88,10 +90,13 @@ agent containers in.
 
 Each clawed agent works differently. I use NanoClaw, you may use Hermes, OpenClaw or one of the many others on the market.
 Claw agents are often in flux, additions like PAWS will be implemented by a Claude skill usually, rather than a deterministic piece of code.
-In the spirit of the \*claw world, I am including a [sample nanoclaw skill](examples/nanoclaw/paws-aws.md), and you're welcome to add your improvements and ports to other claws with a PR.
+In the spirit of the \*claw world, I am including two [nanoclaw example skills](examples/nanoclaw/):
+[`use-paws/SKILL.md`](examples/nanoclaw/use-paws/SKILL.md) (in-agent usage) and
+[`add-paws4claws/SKILL.md`](examples/nanoclaw/add-paws4claws/SKILL.md) (operator setup).
+Ports to other claws welcome via PR.
 
 ## See also
 
 - [INSTALL.md](INSTALL.md) — setup, docker-compose, agent wiring
 - [DESIGN.md](DESIGN.md) — full architecture, wire protocol, sanitization rules
-- [docs/aws-file-input.md](docs/aws-file-input.md) — AWS CLI file/stdin input catalog (v2 + v3 target)
+- [docs/aws-file-input.md](docs/aws-file-input.md) — AWS CLI file/stdin input catalog (v0.2 + v0.3)
