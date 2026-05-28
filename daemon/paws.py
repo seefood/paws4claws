@@ -30,6 +30,7 @@ DEFAULT_ALLOWED_SERVICES = frozenset(
     }
 )
 FILE_IO_SUBCOMMANDS = frozenset({"cp", "mv", "sync"})
+FILE_IO_CP_MV = frozenset({"cp", "mv"})
 MAX_OUTPUT_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_STDIN_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -94,25 +95,105 @@ def check_allowlist(service: str, allowed: frozenset[str] | None) -> str | None:
     return None
 
 
+def _is_local_positional(arg: str) -> bool:
+    return not arg.startswith("s3://") and arg != "-" and not arg.startswith("--")
+
+
+def classify_s3_file_slots(
+    args: list[str],
+) -> tuple[frozenset[int], frozenset[int], str | None]:
+    """Classify S3 cp/mv argv slots as upload (input) or download (output).
+
+    Returns (input_indices, output_indices, error). error is a 501 message when
+    the invocation pattern is explicitly deferred (recursive, sync, etc.).
+    """
+    if len(args) < 2 or args[0] != "s3" or args[1] not in FILE_IO_SUBCOMMANDS:
+        return frozenset(), frozenset(), None
+
+    subcmd = args[1]
+    if subcmd == "sync":
+        return frozenset(), frozenset(), None
+
+    if subcmd not in FILE_IO_CP_MV:
+        return frozenset(), frozenset(), None
+
+    if "--recursive" in args:
+        for i, arg in enumerate(args):
+            if i >= 2 and not arg.startswith("--") and _is_local_positional(arg):
+                return (
+                    frozenset(),
+                    frozenset(),
+                    "paws: recursive S3 transfers with local paths are not supported "
+                    "(planned v0.5). Use single-object cp/mv or "
+                    "`aws s3 cp s3://… - > ./local`.",
+                )
+
+    positionals: list[tuple[int, str]] = []
+    for i, arg in enumerate(args):
+        if i < 2 or arg.startswith("--"):
+            continue
+        positionals.append((i, arg))
+
+    local_slots = [(i, a) for i, a in positionals if _is_local_positional(a)]
+    s3_indices = [i for i, a in positionals if a.startswith("s3://")]
+
+    if not local_slots:
+        return frozenset(), frozenset(), None
+
+    if len(local_slots) >= 2:
+        return frozenset(), frozenset(), None
+
+    if not s3_indices:
+        return frozenset(), frozenset(), None
+
+    local_i, _ = local_slots[0]
+    min_s3 = min(s3_indices)
+    max_s3 = max(s3_indices)
+    if local_i < min_s3:
+        return frozenset({local_i}), frozenset(), None
+    if local_i > max_s3:
+        return frozenset(), frozenset({local_i}), None
+    return frozenset(), frozenset(), None
+
+
 def check_file_io(
     args: list[str],
     file_indices: frozenset[int] | None = None,
 ) -> str | None:
-    """Return None if OK, error message if local file I/O detected without inline files."""
+    """Return None if OK, error message if local file I/O is not covered."""
     if len(args) < 2 or args[0] != "s3" or args[1] not in FILE_IO_SUBCOMMANDS:
         return None
-    covered = file_indices or frozenset()
+
+    covered_inputs = file_indices or frozenset()
+    input_slots, output_slots, classify_err = classify_s3_file_slots(args)
+    if classify_err:
+        return classify_err
+
+    if args[1] == "sync":
+        for i, arg in enumerate(args):
+            if i < 2 or arg.startswith("--"):
+                continue
+            if not arg.startswith("s3://") and arg != "-":
+                return "paws: aws s3 sync with local paths is not supported (planned v0.5). See https://github.com/seefood/paws4claws for the roadmap."
+        return None
+
     for i, arg in enumerate(args):
         if i < 2 or arg.startswith("--"):
             continue
         if not arg.startswith("s3://") and arg != "-":
-            if i in covered:
+            if i in output_slots:
                 continue
+            if i in input_slots and i in covered_inputs:
+                continue
+            if i in input_slots:
+                return (
+                    "paws: local upload path requires inline file content in the v0.3 files payload. See https://github.com/seefood/paws4claws for the roadmap."
+                )
             return (
-                "paws: local file I/O is not supported without inline file content. "
+                "paws: local file I/O is not supported for this invocation. "
                 "Use S3-to-S3, S3-to-stdout (`-`), pipe data "
-                "(`echo data | aws s3 cp - s3://bucket/key`), or pass the file via "
-                "the v0.3 files payload. "
+                "(`echo data | aws s3 cp - s3://bucket/key`), v0.3 files for uploads, "
+                "or v0.4 download patterns (`aws s3 cp s3://… ./local`). "
                 "See https://github.com/seefood/paws4claws for the roadmap."
             )
     return None
@@ -193,6 +274,52 @@ def materialize_files(
     return exec_args, temp_paths, None
 
 
+def prepare_output_paths(
+    args: list[str],
+    output_indices: frozenset[int],
+) -> tuple[list[str], list[str], list[tuple[int, str]], str | None]:
+    """Replace download destination argv slots with daemon temp paths."""
+    if not output_indices:
+        return list(args), [], [], None
+    exec_args = list(args)
+    temp_paths: list[str] = []
+    slots: list[tuple[int, str]] = []
+    for idx in sorted(output_indices):
+        if idx >= len(exec_args):
+            return exec_args, temp_paths, slots, f"argIndex {idx} out of range"
+        with tempfile.NamedTemporaryFile(prefix="paws-", delete=False) as handle:
+            path = handle.name
+        temp_paths.append(path)
+        slots.append((idx, path))
+        exec_args[idx] = path
+    return exec_args, temp_paths, slots, None
+
+
+def collect_output_files(
+    slots: list[tuple[int, str]],
+    exit_code: int,
+) -> tuple[list[dict[str, object]], str | None]:
+    """Read temp download files into outputFiles response entries."""
+    if exit_code != 0 or not slots:
+        return [], None
+    result: list[dict[str, object]] = []
+    for idx, path in slots:
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read()
+        except OSError as exc:
+            return [], f"paws: failed to read output file at argIndex {idx}: {exc}"
+        if len(data) > MAX_FILE_BYTES:
+            return [], (f"paws: output file at argIndex {idx} exceeds {MAX_FILE_BYTES} byte limit")
+        result.append(
+            {
+                "argIndex": idx,
+                "content": base64.b64encode(data).decode("ascii"),
+            }
+        )
+    return result, None
+
+
 def cleanup_temp_files(paths: list[str]) -> None:
     for path in paths:
         try:
@@ -263,6 +390,10 @@ class PawsHandler(BaseHTTPRequestHandler):
             return
 
         file_indices = frozenset(idx for idx, _ in decoded_files)
+        _input_slots, output_slots, classify_err = classify_s3_file_slots(args)
+        if classify_err:
+            self._send_json(501, {"error": "not_implemented", "message": classify_err})
+            return
 
         err = check_allowlist(args[0], self.allowed_services)
         if err:
@@ -280,16 +411,24 @@ class PawsHandler(BaseHTTPRequestHandler):
             self._send_json(501, {"error": "not_implemented", "message": err})
             return
 
-        exec_args, temp_paths, err = materialize_files(args, decoded_files)
+        exec_args, input_temp_paths, err = materialize_files(args, decoded_files)
         if err:
-            cleanup_temp_files(temp_paths)
+            cleanup_temp_files(input_temp_paths)
             self._send_json(400, {"error": "bad_request", "message": err})
             return
+
+        exec_args, output_temp_paths, output_slots, err = prepare_output_paths(exec_args, output_slots)
+        if err:
+            cleanup_temp_files(input_temp_paths + output_temp_paths)
+            self._send_json(400, {"error": "bad_request", "message": err})
+            return
+
+        all_temp_paths = input_temp_paths + output_temp_paths
 
         for arg in exec_args:
             err = validate_arg(arg)
             if err:
-                cleanup_temp_files(temp_paths)
+                cleanup_temp_files(all_temp_paths)
                 self._send_json(403, {"error": "forbidden", "message": err})
                 return
 
@@ -303,6 +442,7 @@ class PawsHandler(BaseHTTPRequestHandler):
                 check=False,
             )
         except subprocess.TimeoutExpired:
+            cleanup_temp_files(all_temp_paths)
             self._send_json(
                 200,
                 {
@@ -313,6 +453,7 @@ class PawsHandler(BaseHTTPRequestHandler):
             )
             return
         except FileNotFoundError:
+            cleanup_temp_files(all_temp_paths)
             self._send_json(
                 200,
                 {
@@ -322,8 +463,12 @@ class PawsHandler(BaseHTTPRequestHandler):
                 },
             )
             return
-        finally:
-            cleanup_temp_files(temp_paths)
+
+        output_files, out_err = collect_output_files(output_slots, result.returncode)
+        cleanup_temp_files(all_temp_paths)
+        if out_err:
+            self._send_json(400, {"error": "bad_request", "message": out_err})
+            return
 
         stdout_too_big = len(result.stdout) > MAX_OUTPUT_BYTES
         stderr_too_big = len(result.stderr) > MAX_OUTPUT_BYTES
@@ -338,14 +483,14 @@ class PawsHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self._send_json(
-            200,
-            {
-                "exitCode": result.returncode,
-                "stdout": result.stdout.decode(errors="replace"),
-                "stderr": result.stderr.decode(errors="replace"),
-            },
-        )
+        response: dict[str, object] = {
+            "exitCode": result.returncode,
+            "stdout": result.stdout.decode(errors="replace"),
+            "stderr": result.stderr.decode(errors="replace"),
+        }
+        if output_files:
+            response["outputFiles"] = output_files
+        self._send_json(200, response)
 
 
 # ── Server factory ─────────────────────────────────────────────────────────────

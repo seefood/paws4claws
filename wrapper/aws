@@ -51,6 +51,13 @@ if printf '%s' "$RESPONSE" | jq -e '.error' >/dev/null 2>&1; then
 	exit 1
 fi
 
+EXIT_CODE=$(printf '%s' "$RESPONSE" | jq -r '.exitCode')
+if [ "$EXIT_CODE" = "0" ]; then
+	if ! write_output_files "$RESPONSE" "$@"; then
+		exit 1
+	fi
+fi
+
 printf '%s' "$RESPONSE" | jq -j '.stdout'
 printf '%s' "$RESPONSE" | jq -j '.stderr' >&2
-exit "$(printf '%s' "$RESPONSE" | jq -r '.exitCode')"
+exit "$EXIT_CODE"
