@@ -12,10 +12,13 @@ uv run --group dev pytest
 uv run --group dev pytest tests/unit/test_sanitize.py
 
 # Run a single test by name
-uv run --group dev pytest tests/integration/test_server.py::test_health_ok -v
+uv run --group dev pytest tests/integration/test_server.py::test_health_no_auth -v
 
 # Lint (ruff is run automatically by the prek pre-commit hook)
 uv run --group dev ruff check daemon/ tests/
+
+# Run all pre-commit hooks
+prek run --all-files
 
 # Build the daemon image locally
 docker build -t paws4claws:local daemon/
@@ -50,10 +53,12 @@ The repo uses [prek](https://github.com/j178/prek) (a Rust pre-commit runner). H
 - `POST /invoke` — `{"args": [...]}`, optional `"stdin"`, optional `"files"` → `{"exitCode", "stdout", "stderr", optional "outputFiles"}`
 - Optional `stdin` field: base64-encoded bytes, not sanitized; 10 MB cap; invalid base64 → 400
 - Optional `files` field: per-arg inline file content; 10 MB per file; daemon materializes `/tmp/paws-*`
-- `GET /health` — `{"ok": true}` (no auth)
+- `GET /health` — `{"ok": true, "version": "<daemon VERSION>"}` (no auth)
 - `401` bad/missing token · `403` allowlist or sanitize · `400` malformed · `501` file I/O · `200` always for exec (check `exitCode`)
 
-**Wrapper** (`wrapper/aws` + `wrapper/file_allowlist.sh`): POSIX shell, depends only on `curl` and `jq`. Install `aws` at `/usr/local/bin/aws` and `file_allowlist.sh` at `/usr/local/lib/paws/file_allowlist.sh`. `aws --paws-version` prints wrapper and daemon versions (inline constants; exits 1 on drift). Inlines local files only for S3 positional paths and known `--flag` + `file://`/`fileb://` pairs (see [docs/aws-file-input.md](docs/aws-file-input.md)).
+**Wrapper** (`wrapper/aws` + `wrapper/file_allowlist.sh`): POSIX shell, depends only on `curl` and `jq`. Allowlist is `$(dirname "$0")/file_allowlist.sh` or `/usr/local/lib/paws/file_allowlist.sh`. `aws --paws-version` prints wrapper and daemon versions (inline constants in each file; exits 1 on drift). Inlines local files only for S3 positional paths and known `--flag` + `file://`/`fileb://` pairs (see [docs/aws-file-input.md](docs/aws-file-input.md)). Nanoclaw install modes (default host `~/bin`): [examples/nanoclaw/add-paws4claws/SKILL.md](examples/nanoclaw/add-paws4claws/SKILL.md).
+
+**Key paths:** `daemon/paws.py`, `wrapper/`, `tests/file_commands.py`, `tests/output_commands.py`, `tests/stdin_commands.py`.
 
 **Integration tests** (`tests/integration/test_server.py`): spin up a real `ThreadingHTTPServer` on a random port (port 0) in-process via a `scope="module"` pytest fixture. `subprocess.run` is patched via `unittest.mock.patch`. No Docker required.
 
@@ -65,4 +70,4 @@ Tokens are set as env vars on the daemon container: `PAWS_TOKEN_<LABEL>=<hex>`. 
 
 ## CI / Publishing
 
-`.github/workflows/publish.yml` triggers on `v*` tags and pushes to `ghcr.io/seefood/paws4claws`. Tag a release with `git tag v0.1.0 && git push origin v0.1.0`.
+`.github/workflows/publish.yml` triggers on `v*` tags and pushes to `ghcr.io/seefood/paws4claws`. Release: bump `VERSION` in `daemon/paws.py` and `PAWS_WRAPPER_VERSION` in `wrapper/aws`, then `git tag v0.4.0 && git push origin v0.4.0`.
