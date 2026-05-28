@@ -22,11 +22,12 @@ aws ec2 describe-instances --filters Name=tag:Env,Values=prod \
   --query 'Reservations[*].Instances[*].InstanceId' --output text
 ```
 
-## File I/O (v0.2 / v0.3)
+## File I/O (v0.2 / v0.3 / v0.4)
 
 | Goal                  | Command                                                                                 |
 | --------------------- | --------------------------------------------------------------------------------------- |
 | Upload a local file   | `aws s3 cp ./local.bin s3://bucket/key`                                                 |
+| Download to local     | `aws s3 cp s3://bucket/key ./local.bin` (v0.4)                                          |
 | Upload via pipe       | `echo "$DATA" \| aws s3 cp - s3://bucket/key`                                           |
 | Upload via flag + URI | `aws ssm put-parameter --name /p --value file://./secret.txt --type String --overwrite` |
 | Download to stdout    | `aws s3 cp s3://bucket/key -` (pipe or redirect locally)                                |
@@ -39,10 +40,10 @@ after known flags (`--user-data`, `--payload`, `--value`, `--secret-string`,
 
 ## Not yet supported
 
-| Blocked                    | Workaround                                    |
-| -------------------------- | --------------------------------------------- |
-| `aws s3 cp s3://… ./local` | `aws s3 cp s3://… - > ./local` (v0.4 planned) |
-| `aws s3 sync ./dir s3://…` | not available (v0.5 planned)                  |
+| Blocked                         | Workaround                                       |
+| ------------------------------- | ------------------------------------------------ |
+| `aws s3 cp --recursive … ./dir` | per-object `aws s3 cp s3://… - > ./local` (v0.5) |
+| `aws s3 sync ./dir s3://…`      | not available (v0.5 planned)                     |
 
 ## Error handling
 

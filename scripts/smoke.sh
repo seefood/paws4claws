@@ -26,11 +26,20 @@ RESPONSE=$(curl -s \
 echo "$RESPONSE" | jq .
 
 echo ""
-echo "=== Local file copy without files payload (expect 501) ==="
+echo "=== Upload without files payload (expect 501) ==="
 RESPONSE=$(curl -s \
 	-H "Authorization: Bearer $PAWS_TOKEN" \
 	-H "Content-Type: application/json" \
 	-d '{"args": ["s3", "cp", "./missing-local", "s3://bucket/key"]}' \
+	"$PAWS_URL/invoke")
+echo "$RESPONSE" | jq .
+
+echo ""
+echo "=== v0.4 download shape (expect AWS error without real bucket) ==="
+RESPONSE=$(curl -s \
+	-H "Authorization: Bearer $PAWS_TOKEN" \
+	-H "Content-Type: application/json" \
+	-d '{"args": ["s3", "cp", "s3://bucket/smoke-key", "./smoke-out.bin"]}' \
 	"$PAWS_URL/invoke")
 echo "$RESPONSE" | jq .
 

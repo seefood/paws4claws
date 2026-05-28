@@ -2,18 +2,19 @@
 
 PAWS proxies the `aws` shell command only (not boto3). Agents often need to pass
 **file content** into AWS CLI commands. This document catalogs every pattern we
-have identified, what v0.2 covers today, and what **v0.3 file passing** adds.
+have identified, what v0.2–v0.4 cover for stdin, uploads, and downloads.
 
 ## How AWS CLI accepts file content
 
-| Mechanism                       | Example                              | v0.2 (stdin pipe)             | v0.3 (local path)             |
-| ------------------------------- | ------------------------------------ | ----------------------------- | ----------------------------- |
-| **Positional `-`**              | `aws s3 cp - s3://b/k`               | Yes — pipe into wrapper       | N/A (use pipe or `-` in args) |
-| **`file:///dev/stdin`**         | `--value file:///dev/stdin`          | Yes — pipe into wrapper       | N/A                           |
-| **`fileb:///dev/stdin`**        | `--user-data fileb:///dev/stdin`     | Yes — pipe into wrapper       | N/A                           |
-| **Inline value in argv**        | `--cli-input-json '{"ImageId":"…"}'` | N/A (no pipe needed)          | N/A                           |
-| **Local path in argv**          | `aws s3 cp ./app.zip s3://b/k`       | No — use v0.3 `files` payload | **Yes (v0.3)**                |
-| **`file://` local URI in argv** | `--zip-file fileb://./bundle.zip`    | No — use v0.3 `files` payload | **Yes (v0.3)**                |
+| Mechanism                         | Example                              | v0.2 (stdin pipe)             | v0.3 (local path)             |
+| --------------------------------- | ------------------------------------ | ----------------------------- | ----------------------------- |
+| **Positional `-`**                | `aws s3 cp - s3://b/k`               | Yes — pipe into wrapper       | N/A (use pipe or `-` in args) |
+| **`file:///dev/stdin`**           | `--value file:///dev/stdin`          | Yes — pipe into wrapper       | N/A                           |
+| **`fileb:///dev/stdin`**          | `--user-data fileb:///dev/stdin`     | Yes — pipe into wrapper       | N/A                           |
+| **Inline value in argv**          | `--cli-input-json '{"ImageId":"…"}'` | N/A (no pipe needed)          | N/A                           |
+| **Local path in argv (upload)**   | `aws s3 cp ./app.zip s3://b/k`       | No — use v0.3 `files` payload | **Yes (v0.3)**                |
+| **Local path in argv (download)** | `aws s3 cp s3://b/k ./out`           | `aws s3 cp s3://… - > ./out`  | **Yes (v0.4)**                |
+| **`file://` local URI in argv**   | `--zip-file fileb://./bundle.zip`    | No — use v0.3 `files` payload | **Yes (v0.3)**                |
 
 ### v0.2 agent usage (pipe)
 
@@ -100,10 +101,9 @@ v0.3 detects **local file paths** in argv (and `file://` / `fileb://` URIs
 pointing at agent-local files), inlines content in a `"files"` array, materializes
 temp files on the daemon (binary 1:1), substitutes paths, and cleans up after exec.
 
-**Input-only** — uploads and parameter files. Downloads to local paths remain
-`aws s3 cp s3://… - > ./local`.
+**Uploads only** — local source paths and parameter files. Downloads use v0.4 below.
 
-**Not in v0.3.0:** `aws s3 sync`, directory recursion, response-side file return.
+**Not in v0.3:** `aws s3 sync`, directory recursion, response-side file return.
 
 ### Wire format
 
@@ -126,12 +126,33 @@ temp files on the daemon (binary 1:1), substitutes paths, and cleans up after ex
 See [tests/file_commands.py](../tests/file_commands.py) and Priority 2 table in git
 history for lambda, iam, ssm, cloudformation, secretsmanager, ecr, s3api cases.
 
+## v0.4 — local file download (implemented)
+
+Single-object **`aws s3 cp`** and **`aws s3 mv`** with a local destination
+(`aws s3 cp s3://bucket/key ./out.bin`). The wrapper sends argv unchanged; the daemon
+rewrites the destination to a temp file, runs AWS CLI, and returns bytes in
+`outputFiles`. The wrapper writes them to the agent path (creates parent directories).
+
+**Not in v0.4:** `--recursive`, `aws s3 sync`, multiple files per request.
+
+### Wire format (response)
+
+```json
+{
+  "exitCode": 0,
+  "stdout": "...",
+  "stderr": "...",
+  "outputFiles": [{ "argIndex": 3, "content": "<base64>" }]
+}
+```
+
+Canonical list: [`tests/output_commands.py`](../tests/output_commands.py).
+
 ### Deferred (roadmap)
 
 | Feature                             | Target | Workaround                                 |
 | ----------------------------------- | ------ | ------------------------------------------ |
-| S3 download to `./local`            | v0.4   | `aws s3 cp s3://… - > ./local`             |
-| `aws s3 sync`                       | v0.5   | not available                              |
+| `aws s3 sync` / `--recursive`       | v0.5   | `aws s3 cp s3://… - > ./local` per object  |
 | `--cli-input-json` via `/dev/stdin` | —      | inline JSON or v0.3 local file via `files` |
 | Streaming / large files             | future | 10 MB inline cap today                     |
 
@@ -141,9 +162,10 @@ ______________________________________________________________________
 
 ## Related code
 
-| File                                                    | Role                                              |
-| ------------------------------------------------------- | ------------------------------------------------- |
-| [`tests/stdin_commands.py`](../tests/stdin_commands.py) | v0.2 stdin argv catalog + pytest cases            |
-| [`tests/file_commands.py`](../tests/file_commands.py)   | v0.3 file argv catalog + pytest cases             |
-| [`daemon/paws.py`](../daemon/paws.py)                   | `decode_files`, `materialize_files`, sanitization |
-| [`wrapper/aws`](../wrapper/aws)                         | File detection, base64 payload, `jq -j` stdout    |
+| File                                                      | Role                                              |
+| --------------------------------------------------------- | ------------------------------------------------- |
+| [`tests/stdin_commands.py`](../tests/stdin_commands.py)   | v0.2 stdin argv catalog + pytest cases            |
+| [`tests/file_commands.py`](../tests/file_commands.py)     | v0.3 file argv catalog + pytest cases             |
+| [`tests/output_commands.py`](../tests/output_commands.py) | v0.4 download argv catalog + pytest cases         |
+| [`daemon/paws.py`](../daemon/paws.py)                     | `decode_files`, `materialize_files`, sanitization |
+| [`wrapper/aws`](../wrapper/aws)                           | File detection, base64 payload, `jq -j` stdout    |

@@ -85,20 +85,18 @@ Network isolation is a second layer of defense alongside token auth.
 - stdin is not sanitized — it is opaque data
 - 10 MB decoded stdin cap (symmetric with stdout/stderr output cap)
 
-### v0.3 — file passing (current)
+### v0.3 — file passing (upload / input)
 
-- Wrapper detects local files only on an **allowlist**: S3 `cp`/`mv`/`sync` positional paths, or `file://`/`fileb://` values after known file parameters (see [docs/aws-file-input.md](docs/aws-file-input.md))
+- Wrapper detects local files only on an **allowlist**: S3 `cp`/`mv`/`sync` positional upload paths, or `file://`/`fileb://` values after known file parameters (see [docs/aws-file-input.md](docs/aws-file-input.md))
 - Encodes file content inline in a `"files"` array with `argIndex`
 - Daemon materializes temp files (binary 1:1), substitutes paths in argv, cleans up after exec
-- Input-only (agent → daemon) — see [docs/aws-file-input.md](docs/aws-file-input.md) for catalog and limits
 
-### v0.4 — download / output files (planned)
+### v0.4 — download / output files (current)
 
-- Response-side counterpart to v0.3: when argv contains a **local destination** (e.g.
-  `aws s3 cp s3://bucket/key ./out.bin`), daemon captures file bytes after exec and
-  returns them in the JSON response (e.g. `"outputFiles"`)
-- Wrapper writes decoded bytes to the agent path with exact binary fidelity
-- Likely scoped first to S3 `cp`/`mv` destination paths on the same allowlist model as uploads
+- Response-side counterpart to v0.3: `aws s3 cp|mv s3://… ./local` — daemon rewrites the
+  local destination to a temp path, runs AWS CLI, returns file bytes in `"outputFiles"`
+- Wrapper writes decoded bytes to the agent path (`mkdir -p` for parent dirs), exact binary
+- Single-file `cp`/`mv` only — no `--recursive`, no `sync` (v0.5)
 
 ### v0.5 — directory sync (planned)
 
@@ -184,6 +182,24 @@ For a full list of AWS CLI commands that accept file or stdin input — see
 ```json
 { "exitCode": 0, "stdout": "...", "stderr": "..." }
 ```
+
+### v0.4 Response extension
+
+When a download destination was rewritten and the command succeeds (`exitCode == 0`),
+the response may include `"outputFiles"`:
+
+```json
+{
+  "exitCode": 0,
+  "stdout": "...",
+  "stderr": "...",
+  "outputFiles": [{ "argIndex": 3, "content": "<base64>" }]
+}
+```
+
+- `argIndex` — index into the original request `args` (agent path)
+- `content` — base64 raw bytes; 10 MB per file
+- Omitted on failure or when no download occurred
 
 HTTP status codes:
 
@@ -281,10 +297,9 @@ exit "$(printf '%s' "$RESPONSE" | jq -r '.exitCode')"
 `PAWS_TOKEN` is injected at container startup. Dependencies: `curl`, `jq` — standard
 in any Linux image.
 
-## What's Not in Scope (v0.1–v0.3)
+## What's Not in Scope (v0.1–v0.4)
 
-- S3 download to local path via argv → **v0.4** (workaround: `aws s3 cp s3://… - > ./local`)
-- `aws s3 sync` / directory file passing → **v0.5**
+- `aws s3 sync` / `--recursive` directory transfers → **v0.5**
 - Multiple IAM profiles per token → **not planned** (use two PAWS containers)
 - Streaming output → future
 - Audit log beyond CloudTrail → future

@@ -43,11 +43,11 @@ The repo uses [prek](https://github.com/j178/prek) (a Rust pre-commit runner). H
 
 1. Service allowlist — `args[0]` must be in the allowed set (or allowlist is `None`)
 1. Per-arg character filter — `validate_arg()` enforces `[A-Za-z0-9:/_\-\.@=,*+%~]+`, blocks `..`, `$(`, and a set of shell-special chars
-1. File-I/O guard — `check_file_io()` returns 501 for `s3 cp/mv/sync` with local path args unless covered by v0.3 `files`; S3-to-S3, S3-to-stdout (`-`), stdin upload, and inline files are allowed
+1. File-I/O guard — `check_file_io()` / `classify_s3_file_slots()` allow v0.3 uploads (`files`), v0.4 downloads (`outputFiles`), S3-to-S3, stdout (`-`); block sync/recursive local paths (501)
 
 **Wire protocol:**
 
-- `POST /invoke` — `{"args": [...]}`, optional `"stdin": "<base64>"`, optional `"files": [{"argIndex": N, "content": "<base64>"}]` → `{"exitCode": N, "stdout": "...", "stderr": "..."}`
+- `POST /invoke` — `{"args": [...]}`, optional `"stdin"`, optional `"files"` → `{"exitCode", "stdout", "stderr", optional "outputFiles"}`
 - Optional `stdin` field: base64-encoded bytes, not sanitized; 10 MB cap; invalid base64 → 400
 - Optional `files` field: per-arg inline file content; 10 MB per file; daemon materializes `/tmp/paws-*`
 - `GET /health` — `{"ok": true}` (no auth)
@@ -57,7 +57,7 @@ The repo uses [prek](https://github.com/j178/prek) (a Rust pre-commit runner). H
 
 **Integration tests** (`tests/integration/test_server.py`): spin up a real `ThreadingHTTPServer` on a random port (port 0) in-process via a `scope="module"` pytest fixture. `subprocess.run` is patched via `unittest.mock.patch`. No Docker required.
 
-**AWS CLI file input catalog:** [docs/aws-file-input.md](docs/aws-file-input.md) — verbs/parameters for v0.2 stdin and v0.3 file passing.
+**AWS CLI file I/O catalog:** [docs/aws-file-input.md](docs/aws-file-input.md) — v0.2 stdin, v0.3 uploads, v0.4 downloads.
 
 ## Token configuration
 

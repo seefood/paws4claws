@@ -59,7 +59,7 @@ PAWS isolation is required.
 | **v0.1** | argv forwarding, stdout/stderr return, per-client tokens, service allowlist                      |
 | **v0.2** | stdin passthrough (`echo data \| aws s3 cp - s3://bucket/key`) — **done**                        |
 | **v0.3** | file passing (local file args inlined in request) — **done** — [catalog](docs/aws-file-input.md) |
-| **v0.4** | download / output files (`aws s3 cp s3://… ./local`) — planned                                   |
+| **v0.4** | download / output files (`aws s3 cp s3://… ./local`) — **done**                                  |
 | **v0.5** | `aws s3 sync` / directory transfers — planned                                                    |
 | future   | streaming output, presigned URL offload for large files                                          |
 
@@ -99,4 +99,4 @@ Ports to other claws welcome via PR.
 
 - [INSTALL.md](INSTALL.md) — setup, docker-compose, agent wiring
 - [DESIGN.md](DESIGN.md) — full architecture, wire protocol, sanitization rules
-- [docs/aws-file-input.md](docs/aws-file-input.md) — AWS CLI file/stdin input catalog (v0.2 + v0.3)
+- [docs/aws-file-input.md](docs/aws-file-input.md) — AWS CLI file/stdin I/O catalog (v0.2–v0.4)

@@ -146,12 +146,13 @@ docker exec <container-name> bash -c 'aws sts get-caller-identity'
 
 ## File I/O limitations
 
-| Blocked / not yet              | Use instead                                       |
-| ------------------------------ | ------------------------------------------------- |
-| `aws s3 cp s3://… /local/path` | `aws s3 cp s3://… - > /local/path` (v0.4 planned) |
-| `aws s3 cp /local/path s3://…` | `aws s3 cp ./local s3://…` (v0.3) or pipe to `-`  |
-| `aws s3 sync ./local s3://…`   | not available (v0.5 planned)                      |
-| `aws s3 cp s3://src s3://dst`  | ✅ server-side copy                               |
+| Blocked / not yet              | Use instead                                      |
+| ------------------------------ | ------------------------------------------------ |
+| `aws s3 cp s3://… /local/path` | supported via v0.4 `outputFiles`                 |
+| `aws s3 cp --recursive …`      | not supported (v0.5)                             |
+| `aws s3 cp /local/path s3://…` | `aws s3 cp ./local s3://…` (v0.3) or pipe to `-` |
+| `aws s3 sync ./local s3://…`   | not available (v0.5 planned)                     |
+| `aws s3 cp s3://src s3://dst`  | ✅ server-side copy                              |
 
 ## Troubleshooting
 
