@@ -6,8 +6,9 @@ description: Use AWS CLI via the PAWS proxy — credential-isolated aws calls wi
 The `aws` command in this container is a proxy wrapper. It forwards your calls to the
 PAWS daemon over HTTP and returns stdout/stderr transparently. You never see credentials.
 
-> **Setup** (Docker network, tokens, Dockerfile) is documented in
-> [`add-paws4claws/SKILL.md`](../add-paws4claws/SKILL.md). This skill is **runtime usage only**.
+> **Setup** (Docker network, tokens, wrapper install) is documented in the operator skill:
+> https://github.com/seefood/paws4claws/blob/main/examples/nanoclaw/add-paws4claws/SKILL.md
+> This skill is **runtime usage only**.
 
 ## Basic usage
 

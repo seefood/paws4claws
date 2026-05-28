@@ -8,9 +8,9 @@ description: Install PAWS (paws4claws) as an AWS credential proxy for agent cont
 [paws4claws](https://github.com/seefood/paws4claws) runs AWS credentials in a dedicated daemon container. Agent containers get a drop-in `aws` wrapper that proxies calls over HTTP — no credentials, no `.aws` mount, no AWS SDK inside containers.
 
 > **Agent usage** — optional. The wrapper is installed as `aws` on `PATH` so agents
-> need no PAWS-specific instructions. If you want in-context guidance (file I/O patterns,
-> piping large output, `paws:` errors), copy [`use-paws/`](../use-paws/) into the agent
-> skills directory — see [§10](#10-agent-skill-optional). This skill is **operator setup only**.
+> need no PAWS-specific instructions. For in-context guidance (file I/O patterns,
+> piping large output, `paws:` errors), install the agent skill from GitHub — see
+> [§10](#10-agent-skill-optional). This skill is **operator setup only**.
 
 ## How it works
 
@@ -26,21 +26,41 @@ The `aws` command behaves identically to the real CLI — same flags, same exit 
 
 ## Prerequisites
 
-- Docker with the `paws4claws` image built (see below)
+- Docker
 - `openssl` for token generation
-- The paws repo at `~/paws` (or wherever you cloned it)
+- `wget` or `curl` on the host (to fetch wrapper files)
+- Agent containers need **`curl`** and **`jq`** (no `awscli`, no git clone)
 
-## 1. Build the paws daemon image
+## Source URLs
+
+Pin a release tag once. Use the same tag for the daemon image and wrapper files so versions stay aligned.
 
 ```bash
-cd ~/paws
-docker build -t paws4claws:local daemon/
+export PAWS_TAG=v0.4.0
+export PAWS_RAW="https://raw.githubusercontent.com/seefood/paws4claws/${PAWS_TAG}"
+export PAWS_IMAGE="ghcr.io/seefood/paws4claws:${PAWS_TAG#v}"
+```
+
+| Artifact               | Location                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| Daemon image           | `${PAWS_IMAGE}` (also `:latest` on GHCR after a release)                                           |
+| Wrapper `aws`          | `${PAWS_RAW}/wrapper/aws`                                                                          |
+| Wrapper allowlist      | `${PAWS_RAW}/wrapper/file_allowlist.sh`                                                            |
+| Agent skill (optional) | `${PAWS_RAW}/examples/nanoclaw/use-paws/SKILL.md`                                                  |
+| Operator skill (this)  | `https://github.com/seefood/paws4claws/blob/${PAWS_TAG}/examples/nanoclaw/add-paws4claws/SKILL.md` |
+
+No git clone required. If you already have the repo, you may set `PAWS_REPO=~/paws` and use `cp` instead of `wget` — same paths under `wrapper/`.
+
+## 1. Pull the paws daemon image
+
+```bash
+docker pull "${PAWS_IMAGE}"
 ```
 
 Verify:
 
 ```bash
-docker run --rm --entrypoint aws paws4claws:local --version
+docker run --rm --entrypoint aws "${PAWS_IMAGE}" --version
 # aws-cli/2.x.x ...
 ```
 
@@ -61,6 +81,12 @@ openssl rand -hex 32
 ```
 
 ## 4. Configure both `.env` files
+
+Create a small config directory on the host (no repo clone — only `.env`):
+
+```bash
+mkdir -p ~/paws
+```
 
 **`~/paws/.env`** — daemon config. The daemon reads credentials from `~/.aws` (mounted read-only) and accepts calls bearing this token:
 
@@ -86,7 +112,7 @@ docker run -d \
   --network paws-net \
   -v ~/.aws:/root/.aws:ro \
   --env-file ~/paws/.env \
-  paws4claws:local
+  "${PAWS_IMAGE}"
 ```
 
 Check it started:
@@ -98,29 +124,28 @@ docker logs paws
 
 ## 6. Choose a wrapper install mode
 
-The PAWS wrapper is **two files** from the paws4claws repo (`wrapper/aws` and `wrapper/file_allowlist.sh`). Pick **one** mode below.
+The PAWS wrapper is **two files** (`wrapper/aws` and `wrapper/file_allowlist.sh`). Fetch them from `${PAWS_RAW}` (see [Source URLs](#source-urls)). Pick **one** mode below.
 
-| Mode                | Where files live                             | Rebuild image?      | Upgrade wrapper                              |
-| ------------------- | -------------------------------------------- | ------------------- | -------------------------------------------- |
-| **C (recommended)** | Host `~/bin`, mounted R/W into the container | No                  | Copy two files on host; no container restart |
-| **B**               | Host dir, bind-mounted read-only at spawn    | No (respawn agents) | Replace host files; new containers pick up   |
-| **A**               | Baked into the agent image (`COPY`)          | Yes                 | Sync into `container/`, rebuild image        |
+| Mode                | Where files live                             | Rebuild image?      | Upgrade wrapper                            |
+| ------------------- | -------------------------------------------- | ------------------- | ------------------------------------------ |
+| **C (recommended)** | Host `~/bin`, mounted R/W into the container | No                  | Re-`wget` on host; no container restart    |
+| **B**               | Host dir, bind-mounted read-only at spawn    | No (respawn agents) | Re-`wget` on host; new containers pick up  |
+| **A**               | Baked into the agent image (`COPY`)          | Yes                 | Re-`wget` into `container/`, rebuild image |
 
 The wrapper finds `file_allowlist.sh` next to the `aws` script (`dirname "$0"`), or at `/usr/local/lib/paws/file_allowlist.sh` (mode A layout).
-
-Set `PAWS_REPO=~/paws` (or your clone path) for the commands below.
 
 ### Mode C — Host `~/bin` (recommended)
 
 **Best for:** simplest install and fastest upgrades. Nanoclaw typically mounts the agent homedir from the host; `~/bin` inside the container is a host directory you can edit without rebuilding or restarting.
 
 1. Ensure the agent image has **`curl`** and **`jq`** (no `awscli`, no wrapper `COPY`).
-1. Copy both wrapper files into the agent's **host** `bin` directory (same folder — the path that appears as `~/bin` inside the container):
+1. Download both wrapper files into the agent's **host** `bin` directory (same folder — the path that appears as `~/bin` inside the container):
 
 ```bash
 AGENT_BIN=~/nanoclaw/data/agents/main/bin   # adjust to your homedir layout
 mkdir -p "$AGENT_BIN"
-cp "$PAWS_REPO/wrapper/aws" "$PAWS_REPO/wrapper/file_allowlist.sh" "$AGENT_BIN/"
+wget -q "${PAWS_RAW}/wrapper/aws" -O "$AGENT_BIN/aws"
+wget -q "${PAWS_RAW}/wrapper/file_allowlist.sh" -O "$AGENT_BIN/file_allowlist.sh"
 chmod +x "$AGENT_BIN/aws"
 ```
 
@@ -136,7 +161,8 @@ No `container-runner` volume mounts or Dockerfile `COPY` lines are required for 
 
 ```bash
 mkdir -p ~/paws/wrapper
-cp "$PAWS_REPO/wrapper/aws" "$PAWS_REPO/wrapper/file_allowlist.sh" ~/paws/wrapper/
+wget -q "${PAWS_RAW}/wrapper/aws" -O ~/paws/wrapper/aws
+wget -q "${PAWS_RAW}/wrapper/file_allowlist.sh" -O ~/paws/wrapper/file_allowlist.sh
 chmod +x ~/paws/wrapper/aws
 ```
 
@@ -158,10 +184,12 @@ chmod +x ~/paws/wrapper/aws
 
 **Best for:** operators who want the wrapper fixed inside the image. **Slowest** install and upgrade (rebuild + restart every time).
 
-1. Sync from paws4claws into nanoclaw `container/`:
+1. Download into nanoclaw `container/`:
 
 ```bash
-cp "$PAWS_REPO/wrapper/aws" "$PAWS_REPO/wrapper/file_allowlist.sh" ~/nanoclaw/container/
+wget -q "${PAWS_RAW}/wrapper/aws" -O ~/nanoclaw/container/aws
+wget -q "${PAWS_RAW}/wrapper/file_allowlist.sh" -O ~/nanoclaw/container/file_allowlist.sh
+chmod +x ~/nanoclaw/container/aws
 ```
 
 1. In **`container/Dockerfile`** (ester2 branch may already have this):
@@ -252,8 +280,17 @@ PAWS is designed to be **transparent**: the proxy is the `aws` command on `PATH`
 same flags, exit codes, and stdout/stderr as the real CLI. Agents that already know `aws`
 do not need any extra skill or documentation to use PAWS.
 
-**Optional:** copy [`use-paws/`](../use-paws/) into your agent's skills directory (wherever
-your claw stores agent-facing skills — e.g. nanoclaw's agent image or homedir skills path).
+**Optional:** install the in-agent skill into your claw's agent skills directory (not next to
+this operator skill — they live in different places):
+
+```bash
+AGENT_SKILLS=~/nanoclaw/data/agents/main/skills   # adjust to your layout
+mkdir -p "$AGENT_SKILLS/use-paws"
+wget -q "${PAWS_RAW}/examples/nanoclaw/use-paws/SKILL.md" -O "$AGENT_SKILLS/use-paws/SKILL.md"
+```
+
+Browser link (same file): `${PAWS_RAW}/examples/nanoclaw/use-paws/SKILL.md`
+
 That skill documents runtime patterns that are easy to get wrong without reading the repo:
 
 - piping or filtering large AWS output before it hits context
@@ -265,15 +302,25 @@ the wrapper requires the skill to be present.
 
 ## 11. Upgrading PAWS
 
-After pulling a new paws4claws release, bump **both** `PAWS_WRAPPER_VERSION` in `wrapper/aws` and `VERSION` in `daemon/paws.py`, rebuild/restart the **daemon** image, then upgrade the wrapper per mode:
+1. Set `PAWS_TAG` to the new release (e.g. `v0.5.0`) and refresh [Source URLs](#source-urls).
+1. Pull the new daemon image and restart the `paws` container:
 
-| Mode  | Wrapper upgrade steps                                                                         |
-| ----- | --------------------------------------------------------------------------------------------- |
-| **C** | `cp` `wrapper/aws` and `wrapper/file_allowlist.sh` to host `~/bin` — **no container restart** |
-| **B** | `cp` both files to `~/paws/wrapper/` — respawn agent containers                               |
-| **A** | `cp` into `container/`, rebuild agent image, restart nanoclaw                                 |
+```bash
+docker pull "${PAWS_IMAGE}"
+docker stop paws && docker rm paws
+# re-run §5 docker run with the new image
+```
 
-Run `aws --paws-version` after upgrading to confirm wrapper and daemon match.
+1. Re-fetch the wrapper per mode:
+
+| Mode  | Wrapper upgrade steps                                                                           |
+| ----- | ----------------------------------------------------------------------------------------------- |
+| **C** | Re-run the `wget` lines from §6 mode C into host `~/bin` — **no container restart**             |
+| **B** | Re-run the `wget` lines from §6 mode B into `~/paws/wrapper/` — respawn agent containers        |
+| **A** | Re-run the `wget` lines from §6 mode A into `container/`, rebuild agent image, restart nanoclaw |
+
+1. Optional: re-`wget` the agent skill (`§10`).
+1. Run `aws --paws-version` to confirm wrapper and daemon match.
 
 ## File I/O limitations
 
@@ -308,7 +355,7 @@ The `PAWS_TOKEN` in the agent container doesn't match any `PAWS_TOKEN_*` in the 
 | ----- | ---------------------------------------------------------------------------------------------------------------- |
 | **C** | Both files on the **host** `bin` path that mounts as `~/bin`; `which aws` inside the container shows `~/bin/aws` |
 | **B** | Bind mounts present on `docker inspect <container>`; host files exist under `~/paws/wrapper/`                    |
-| **A** | `container/aws` synced from paws4claws; Dockerfile `COPY` lines present; image rebuilt                           |
+| **A** | `container/aws` and `container/file_allowlist.sh` present; Dockerfile `COPY` lines present; image rebuilt        |
 
 ### `paws: file_allowlist.sh not found`
 
