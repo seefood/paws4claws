@@ -125,6 +125,18 @@ systemctl --user restart "$(. setup/lib/install-slug.sh && systemd_unit)"
 ## 8. Verify
 
 ```bash
+# Version check — wrapper vs daemon (no AWS call, no token required):
+docker run --rm \
+  --network paws-net \
+  -e "NO_PROXY=paws,.amazonaws.com,169.254.169.254" \
+  -e "no_proxy=paws,.amazonaws.com,169.254.169.254" \
+  nanoclaw-agent-v2-58d885a2:latest \
+  aws --paws-version
+# Expected (both match after a full redeploy):
+#   wrapper: 0.4.0
+#   daemon:  0.4.0
+# Exit 1 + stderr if wrapper and daemon were updated separately (version drift).
+
 # Quick smoke test — run a throwaway container on paws-net:
 source <(grep '^PAWS_TOKEN=' ~/nanoclaw/.env | tail -1)
 docker run --rm \
@@ -141,8 +153,11 @@ docker run --rm \
 Or from inside a running agent container (after the agent spawns on a message):
 
 ```bash
+docker exec <container-name> aws --paws-version
 docker exec <container-name> bash -c 'aws sts get-caller-identity'
 ```
+
+After updating paws4claws, sync `wrapper/aws` and `wrapper/file_allowlist.sh` into `container/`, bump `PAWS_WRAPPER_VERSION` in the wrapper to match `VERSION` in `daemon/paws.py`, rebuild the agent image, and restart the paws daemon image so both sides stay aligned.
 
 ## File I/O limitations
 

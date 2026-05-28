@@ -53,7 +53,7 @@ The repo uses [prek](https://github.com/j178/prek) (a Rust pre-commit runner). H
 - `GET /health` — `{"ok": true}` (no auth)
 - `401` bad/missing token · `403` allowlist or sanitize · `400` malformed · `501` file I/O · `200` always for exec (check `exitCode`)
 
-**Wrapper** (`wrapper/aws` + `wrapper/file_allowlist.sh`): POSIX shell, depends only on `curl` and `jq`. Install `aws` at `/usr/local/bin/aws` and `file_allowlist.sh` at `/usr/local/lib/paws/file_allowlist.sh`. Inlines local files only for S3 positional paths and known `--flag` + `file://`/`fileb://` pairs (see [docs/aws-file-input.md](docs/aws-file-input.md)).
+**Wrapper** (`wrapper/aws` + `wrapper/file_allowlist.sh`): POSIX shell, depends only on `curl` and `jq`. Install `aws` at `/usr/local/bin/aws` and `file_allowlist.sh` at `/usr/local/lib/paws/file_allowlist.sh`. `aws --paws-version` prints wrapper and daemon versions (inline constants; exits 1 on drift). Inlines local files only for S3 positional paths and known `--flag` + `file://`/`fileb://` pairs (see [docs/aws-file-input.md](docs/aws-file-input.md)).
 
 **Integration tests** (`tests/integration/test_server.py`): spin up a real `ThreadingHTTPServer` on a random port (port 0) in-process via a `scope="module"` pytest fixture. `subprocess.run` is patched via `unittest.mock.patch`. No Docker required.
 

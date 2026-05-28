@@ -6,10 +6,14 @@ import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import paws
 import pytest
 from paws import DEFAULT_ALLOWED_SERVICES, MAX_STDIN_BYTES, make_handler
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from tests.file_commands import FILE_COMMAND_CASES
 from tests.output_commands import OUTPUT_COMMAND_CASES
@@ -79,10 +83,25 @@ def _post(url, body, token=None):
 
 
 def test_health_no_auth(base_url):
-    """GET /health requires no auth and returns {"ok": true}."""
+    """GET /health requires no auth and returns ok + version."""
     status, body = _get(f"{base_url}/health")
     assert status == 200
-    assert body == {"ok": True}
+    assert body["ok"] is True
+    assert body["version"] == paws.VERSION
+
+
+def test_wrapper_paws_version(base_url):
+    """--paws-version prints wrapper and daemon versions (no PAWS_TOKEN required)."""
+    wrapper = REPO_ROOT / "wrapper" / "aws"
+    result = subprocess.run(
+        [str(wrapper), "--paws-version"],
+        env={**os.environ, "PAWS_URL": base_url},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"wrapper: {paws.VERSION}\ndaemon:  {paws.VERSION}\n"
 
 
 # ── auth ───────────────────────────────────────────────────────────────────────

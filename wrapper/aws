@@ -4,6 +4,22 @@
 # Requires: PAWS_TOKEN env var, curl, jq
 
 PAWS_URL="${PAWS_URL:-http://paws:7142}"
+PAWS_WRAPPER_VERSION="0.4.0"
+
+if [ "$1" = "--paws-version" ]; then
+	printf 'wrapper: %s\n' "$PAWS_WRAPPER_VERSION"
+	if _health=$(curl -sf "$PAWS_URL/health" 2>/dev/null); then
+		_daemon=$(printf '%s' "$_health" | jq -r '.version // "unknown"')
+		printf 'daemon:  %s\n' "$_daemon"
+		if [ "$PAWS_WRAPPER_VERSION" != "$_daemon" ]; then
+			printf 'paws: wrapper and daemon versions differ — redeploy both\n' >&2
+			exit 1
+		fi
+		exit 0
+	fi
+	printf 'daemon:  unreachable\n' >&2
+	exit 1
+fi
 
 # shellcheck source=wrapper/file_allowlist.sh
 _allowlist="$(dirname "$0")/file_allowlist.sh"
