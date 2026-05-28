@@ -12,6 +12,7 @@ import pytest
 from paws import DEFAULT_ALLOWED_SERVICES, MAX_STDIN_BYTES, make_handler
 
 from tests.file_commands import FILE_COMMAND_CASES
+from tests.output_commands import OUTPUT_COMMAND_CASES
 from tests.stdin_commands import STDIN_COMMAND_CASES, STDIN_COMMAND_REQUIRES_ALLOWLIST
 
 TOKENS = frozenset({"test-token-xyz"})
@@ -166,15 +167,41 @@ def test_bad_arg_is_403(base_url):
     assert body["error"] == "forbidden"
 
 
-def test_local_file_cp_is_501(base_url):
+def test_s3_cp_download_allowed(base_url):
     status, body = _post(
         f"{base_url}/invoke",
-        {"args": ["s3", "cp", "s3://bucket/key", "/tmp/file"]},
+        {"args": ["s3", "cp", "s3://bucket/key", "./out.bin"]},
+        token="test-token-xyz",
+    )
+    assert status != 501
+
+
+def test_recursive_download_is_501(base_url):
+    status, body = _post(
+        f"{base_url}/invoke",
+        {
+            "args": [
+                "s3",
+                "cp",
+                "--recursive",
+                "s3://bucket/prefix/",
+                "./dir",
+            ]
+        },
         token="test-token-xyz",
     )
     assert status == 501
-    assert body["error"] == "not_implemented"
-    assert "not supported" in body["message"]
+    assert "recursive" in body["message"]
+
+
+def test_sync_local_path_is_501(base_url):
+    status, body = _post(
+        f"{base_url}/invoke",
+        {"args": ["s3", "sync", "./local", "s3://bucket/prefix"]},
+        token="test-token-xyz",
+    )
+    assert status == 501
+    assert "sync" in body["message"]
 
 
 def test_s3_to_stdout_is_allowed(base_url):
@@ -303,6 +330,55 @@ def test_file_command_reaches_subprocess(all_services_url, case):
     temp_path = exec_argv[case.arg_index + 1]
     assert os.path.basename(temp_path).startswith("paws-")
     cleanup_mock.assert_called_once()
+
+
+@pytest.mark.parametrize("case", OUTPUT_COMMAND_CASES, ids=lambda c: c.id)
+def test_output_command_returns_output_files(all_services_url, case):
+    args = list(case.args)
+    args[case.arg_index] = "./download.bin"
+
+    def _fake_run(cmd, **kwargs):
+        dest = cmd[case.arg_index + 1]
+        with open(dest, "wb") as handle:
+            handle.write(case.file_bytes)
+        mock = MagicMock()
+        mock.returncode = 0
+        mock.stdout = b""
+        mock.stderr = b""
+        return mock
+
+    with patch("paws.subprocess.run", side_effect=_fake_run) as run_mock:
+        status, body = _post(
+            f"{all_services_url}/invoke",
+            {"args": args},
+            token="test-token-xyz",
+        )
+    assert status == 200, body
+    assert body["exitCode"] == 0
+    run_mock.assert_called_once()
+    exec_argv = run_mock.call_args.args[0]
+    assert os.path.basename(exec_argv[case.arg_index + 1]).startswith("paws-")
+    assert "outputFiles" in body
+    assert len(body["outputFiles"]) == 1
+    entry = body["outputFiles"][0]
+    assert entry["argIndex"] == case.arg_index
+    assert base64.b64decode(entry["content"]) == case.file_bytes
+
+
+def test_output_files_omitted_on_failure(all_services_url):
+    mock = MagicMock()
+    mock.returncode = 1
+    mock.stdout = b""
+    mock.stderr = b"failed"
+    with patch("paws.subprocess.run", return_value=mock):
+        status, body = _post(
+            f"{all_services_url}/invoke",
+            {"args": ["s3", "cp", "s3://bucket/key", "./out.bin"]},
+            token="test-token-xyz",
+        )
+    assert status == 200
+    assert body["exitCode"] == 1
+    assert "outputFiles" not in body
 
 
 def test_s3_cp_local_upload_allowed_with_files(base_url):

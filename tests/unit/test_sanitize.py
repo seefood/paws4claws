@@ -151,23 +151,27 @@ def test_s3_sync_s3_to_s3_allowed():
     assert check_file_io(["s3", "sync", "s3://b/src/", "s3://b/dst/"]) is None
 
 
-def test_local_dest_blocked():
-    """Copying from S3 to a local path is rejected without v0.3 files payload."""
-    err = check_file_io(["s3", "cp", "s3://bucket/key", "/tmp/file"])
-    assert err is not None
-    assert "not supported" in err
+def test_local_dest_allowed_for_v04_download():
+    assert check_file_io(["s3", "cp", "s3://bucket/key", "/tmp/file"]) is None
 
 
-def test_local_source_blocked():
-    """Copying from a local path to S3 is rejected without v0.3 files payload."""
+def test_local_source_blocked_without_files():
+    """Copying from a local path to S3 requires v0.3 files payload."""
     err = check_file_io(["s3", "cp", "/tmp/file", "s3://bucket/key"])
     assert err is not None
-    assert "not supported" in err
+    assert "inline file content" in err
 
 
 def test_local_sync_blocked():
     err = check_file_io(["s3", "sync", "./local", "s3://bucket/prefix"])
     assert err is not None
+    assert "sync" in err
+
+
+def test_recursive_local_download_blocked():
+    err = check_file_io(["s3", "cp", "--recursive", "s3://bucket/prefix/", "./dir"])
+    assert err is not None
+    assert "recursive" in err
 
 
 def test_s3_ls_not_affected():

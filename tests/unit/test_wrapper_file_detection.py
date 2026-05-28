@@ -1,5 +1,6 @@
-"""Tests for v0.3 wrapper file allowlist (wrapper/file_allowlist.sh)."""
+"""Tests for v0.3/v0.4 wrapper file allowlist (wrapper/file_allowlist.sh)."""
 
+import base64
 import json
 import subprocess
 from pathlib import Path
@@ -76,3 +77,49 @@ def test_file_uri_without_allowlist_flag_is_not_collected(tmp_path: Path):
     doc.write_text("{}")
     files = _collect_files(tmp_path, "logs", "filter-log-events", f"file://{doc}")
     assert files == []
+
+
+def test_s3_download_dest_is_not_inlined(tmp_path: Path):
+    """v0.4 downloads do not require a pre-existing local file on the agent."""
+    files = _collect_files(tmp_path, "s3", "cp", "s3://bucket/key", "./not-yet-created.bin")
+    assert files == []
+
+
+def _write_output_files(cwd: Path, response_json: str, *argv: str) -> None:
+    script = f"""
+set -e
+. "{ALLOWLIST}"
+write_output_files {json.dumps(response_json)} {" ".join(json.dumps(a) for a in argv)}
+"""
+    subprocess.run(
+        ["sh", "-c", script],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def test_write_output_files_creates_dest(tmp_path: Path):
+    dest = tmp_path / "subdir" / "out.bin"
+    payload = b"\x00\xffbinary"
+    response = json.dumps(
+        {
+            "exitCode": 0,
+            "outputFiles": [
+                {
+                    "argIndex": 3,
+                    "content": base64.b64encode(payload).decode(),
+                }
+            ],
+        }
+    )
+    _write_output_files(
+        tmp_path,
+        response,
+        "s3",
+        "cp",
+        "s3://bucket/key",
+        str(dest),
+    )
+    assert dest.read_bytes() == payload
