@@ -7,8 +7,10 @@ description: Install PAWS (paws4claws) as an AWS credential proxy for agent cont
 
 [paws4claws](https://github.com/seefood/paws4claws) runs AWS credentials in a dedicated daemon container. Agent containers get a drop-in `aws` wrapper that proxies calls over HTTP — no credentials, no `.aws` mount, no AWS SDK inside containers.
 
-> **Agent usage** (how to run `aws`, file I/O patterns, errors) is in
-> [`use-paws/SKILL.md`](../use-paws/SKILL.md). This skill is **operator setup only**.
+> **Agent usage** — optional. The wrapper is installed as `aws` on `PATH` so agents
+> need no PAWS-specific instructions. If you want in-context guidance (file I/O patterns,
+> piping large output, `paws:` errors), copy [`use-paws/`](../use-paws/) into the agent
+> skills directory — see [§10](#10-agent-skill-optional). This skill is **operator setup only**.
 
 ## How it works
 
@@ -244,7 +246,24 @@ docker run --rm \
 
 Or from a running agent: `docker exec <container-name> aws sts get-caller-identity`
 
-## 10. Upgrading PAWS
+## 10. Agent skill (optional)
+
+PAWS is designed to be **transparent**: the proxy is the `aws` command on `PATH`, with the
+same flags, exit codes, and stdout/stderr as the real CLI. Agents that already know `aws`
+do not need any extra skill or documentation to use PAWS.
+
+**Optional:** copy [`use-paws/`](../use-paws/) into your agent's skills directory (wherever
+your claw stores agent-facing skills — e.g. nanoclaw's agent image or homedir skills path).
+That skill documents runtime patterns that are easy to get wrong without reading the repo:
+
+- piping or filtering large AWS output before it hits context
+- v0.3 upload paths (`./file` vs `file://`) and v0.4 local download destinations
+- interpreting `paws:` proxy errors vs ordinary AWS failures
+
+Skip this step if you prefer agents to discover `aws` on their own; nothing in nanoclaw or
+the wrapper requires the skill to be present.
+
+## 11. Upgrading PAWS
 
 After pulling a new paws4claws release, bump **both** `PAWS_WRAPPER_VERSION` in `wrapper/aws` and `VERSION` in `daemon/paws.py`, rebuild/restart the **daemon** image, then upgrade the wrapper per mode:
 
