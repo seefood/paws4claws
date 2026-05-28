@@ -144,6 +144,8 @@ Two things are required inside each agent container:
 
 ### Install the wrapper
 
+**Nanoclaw operators:** see [`examples/nanoclaw/add-paws4claws/SKILL.md`](examples/nanoclaw/add-paws4claws/SKILL.md) for three install modes — **host `~/bin` (recommended)**, runtime read-only bind mount, or image bake-in. The steps below match **image bake-in** (nanoclaw mode A).
+
 Copy `wrapper/aws` and `wrapper/file_allowlist.sh` from this repo into the agent image at build time:
 
 ```dockerfile
@@ -290,8 +292,8 @@ This section summarises everything an agent skill needs to know.
 
 ### Example skills in this repo
 
-| File                                                                                     | Purpose                                                                            |
-| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [`examples/nanoclaw/README.md`](examples/nanoclaw/README.md)                             | Why there are two nanoclaw skills (agent vs operator)                              |
-| [`examples/nanoclaw/use-paws/SKILL.md`](examples/nanoclaw/use-paws/SKILL.md)             | In-agent skill — how to use the `aws` wrapper (usage, file I/O, errors)            |
-| [`examples/nanoclaw/add-paws4claws/SKILL.md`](examples/nanoclaw/add-paws4claws/SKILL.md) | Operator skill — wiring nanoclaw to a PAWS daemon (`NO_PROXY`, Dockerfile, tokens) |
+| File                                                                                     | Purpose                                                                                             |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [`examples/nanoclaw/README.md`](examples/nanoclaw/README.md)                             | Why there are two nanoclaw skills (agent vs operator)                                               |
+| [`examples/nanoclaw/use-paws/SKILL.md`](examples/nanoclaw/use-paws/SKILL.md)             | In-agent skill — how to use the `aws` wrapper (usage, file I/O, errors)                             |
+| [`examples/nanoclaw/add-paws4claws/SKILL.md`](examples/nanoclaw/add-paws4claws/SKILL.md) | Operator skill — wiring nanoclaw to a PAWS daemon (three wrapper install modes, `NO_PROXY`, tokens) |
