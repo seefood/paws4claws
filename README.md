@@ -2,10 +2,11 @@
 
 # paws4claws — Proxied AWS CLI
 
-A credential-isolation daemon for AI agent containers. Agents run **AWS CLI**
-(`aws`) commands without ever holding credentials — not boto3, not the AWS SDKs for
-Python/JS/Go, or any other programmatic client. A dedicated sidecar container holds
-credentials, runs the real `aws` CLI, and returns the result. The agent can pipe
+A credential-isolation daemon for AI agent containers.
+
+Agents run **AWS CLI** (`aws`) commands without ever holding credentials.
+A dedicated sidecar container holdsvcredentials, runs the real `aws` CLI,
+and returns the result. The agent can pipe
 output through `jq`, `grep`, etc. before it ever reaches the LLM.
 
 ## Problem
@@ -13,14 +14,16 @@ output through `jq`, `grep`, etc. before it ever reaches the LLM.
 AI agent containers cannot safely hold long-lived AWS credentials:
 
 - Credentials in the container mean credentials in the LLM's reachable environment
-- Why not MCP? Raw AWS output is often too large to pass to the LLM unfiltered
-- [OneCLI](https://github.com/onecli/onecli) proxies HTTP APIs but the `aws` protocol works with fully signed payload
+- Why not MCP? Raw AWS output is not for all tasks, often it's too large to pass to the LLM unfiltered.
+  A CLI wrapper allows to pipe through sed/grep/head etc. and save tokens.
+- [OneCLI](https://github.com/onecli/onecli) proxies HTTP APIs but the `aws`
+  protocol works with fully signed payload, so it's incompatible.
 
 ## How it works
 
 The PAWS daemon runs in its own container on a dedicated Docker network. Agent
 containers that need AWS access are added to that network. Inside each agent
-container, a drop-in shell script named `aws` replaces (or precedes) the real
+container, a drop-in shell script named `aws` stands for the real
 binary. The agent uses it exactly as it would the real CLI:
 
 ```
@@ -44,7 +47,7 @@ credentials in the first version, I might consider adding more in the future, bu
 a true paranoid DevOps guy like me would rather run two containers with different credentials
 for each.
 
-The paws container can get the dredentials from IMDSv2, ~/.aws/ files or the
+The paws container can get the credentials from IMDSv2, ~/.aws/ files or the
 environment, as it runs the real `aws` CLI v2.
 
 **Scope:** PAWS intercepts the `aws` shell command via a wrapper script. Python code
@@ -61,7 +64,7 @@ PAWS isolation is required.
 | **v0.3** | file passing (local file args inlined in request) — **done** — [catalog](docs/aws-file-input.md) |
 | **v0.4** | download / output files (`aws s3 cp s3://… ./local`) — **done**                                  |
 | **v0.5** | `aws s3 sync` / directory transfers — planned                                                    |
-| future   | streaming output, presigned URL offload for large files                                          |
+| future   | streaming output                                                                                 |
 
 ## Security model
 
@@ -88,7 +91,7 @@ agent containers in.
 
 ## Agent integrations
 
-Each clawed agent works differently. I use NanoClaw, you may use Hermes, OpenClaw or one of the many others on the market.
+Each claw agent works differently. I use NanoClaw, you may use Hermes, OpenClaw or one of the many others on the market.
 Claw agents are often in flux, additions like PAWS will be implemented by a Claude skill usually, rather than a deterministic piece of code.
 In the spirit of the \*claw world, I am including two [nanoclaw example skills](examples/nanoclaw/):
 [`use-paws/SKILL.md`](examples/nanoclaw/use-paws/SKILL.md) (in-agent usage) and

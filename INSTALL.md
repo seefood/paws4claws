@@ -2,7 +2,7 @@
 
 This guide covers everything needed to run PAWS in Docker — standalone or via
 `docker-compose` — and how to wire agent containers into it. It is written so
-that an AI agent (e.g. nanoclaw) can read it and produce its own integration
+that an AI agent (e.g. NanoClaw) can read it and produce its own integration
 skill from scratch.
 
 ## Prerequisites
@@ -269,13 +269,17 @@ This section summarises everything an agent skill needs to know.
 - The daemon never returns credentials. All errors from the proxy start with
   `paws:` on stderr.
 
-### v0.1 limitations the agent must know
+### v0.4 limitations the agent must know
 
-- `aws s3 cp s3://bucket/key /local/path` — **blocked** (local destination)
-- `aws s3 cp /local/path s3://bucket/key` — **blocked** (local source)
+- `aws s3 cp s3://bucket/key /local/path` — **allowed** (local destination)
+- `aws s3 cp /local/path s3://bucket/key` — **allowed** (local source)
+- `aws s3 cp s3://bucket/path /local/path` --recursive — **blocked** (local destination)
+- `aws s3 cp /local/path s3://bucket/path` --recursive — **blocked** (local source)
 - `aws s3 sync ./local s3://bucket/prefix` — **blocked** (local source)
 - `aws s3 cp s3://bucket/key -` — **allowed** (stream to stdout, pipe it)
 - `aws s3 cp s3://src s3://dst` — **allowed** (server-side copy)
+
+sync and copying entire directories is planned for future releases, as it's a big jump in complexity.
 
 ### Default allowed services
 
