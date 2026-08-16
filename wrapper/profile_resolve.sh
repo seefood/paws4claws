@@ -10,7 +10,7 @@ _paws_profile_suffix() {
 
 # Space-separated list of configured profile suffixes (from PAWS_URL_* env vars).
 _paws_configured_profiles() {
-	env | sed -n 's/^PAWS_URL_\([A-Za-z0-9_]*\)=.*/\1/p' | tr '\n' ' '
+	env | sed -n 's/^PAWS_URL_\([A-Za-z0-9_]*\)=.*/\1/p' | sort | tr '\n' ' ' | sed 's/ $//'
 }
 
 # On success: sets PAWS_URL and PAWS_TOKEN, returns 0.
