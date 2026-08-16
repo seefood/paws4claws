@@ -15,6 +15,10 @@ from paws import DEFAULT_ALLOWED_SERVICES, MAX_STDIN_BYTES, make_handler
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Captured before any test patches "paws.subprocess.run" — that target patches the
+# shared stdlib subprocess module itself, which would otherwise break this direct call too.
+_REAL_SUBPROCESS_RUN = subprocess.run
+
 from tests.file_commands import FILE_COMMAND_CASES
 from tests.output_commands import OUTPUT_COMMAND_CASES
 from tests.stdin_commands import STDIN_COMMAND_CASES, STDIN_COMMAND_REQUIRES_ALLOWLIST
@@ -51,6 +55,18 @@ def all_services_url():
 def unrestricted_url():
     """Server with PAWS_ALLOWED_SERVICES=all (None allowlist)."""
     handler = make_handler(TOKENS, None)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{port}"
+    httpd.shutdown()
+
+
+@pytest.fixture(scope="module")
+def second_daemon_url():
+    """A second daemon simulating a different AWS account, with its own token."""
+    handler = make_handler(frozenset({"acct-b-token"}), ALLOWED)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -104,6 +120,59 @@ def test_wrapper_paws_version(base_url):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"wrapper: {paws.VERSION}\ndaemon:  {paws.VERSION}\n"
+
+
+def _run_wrapper(env_overrides, *args):
+    """Invoke the real wrapper/aws binary with a controlled environment."""
+    wrapper = REPO_ROOT / "wrapper" / "aws"
+    env = {**os.environ, "AWS_PROFILE": "", **env_overrides}
+    return _REAL_SUBPROCESS_RUN([str(wrapper), *args], env=env, capture_output=True, text=True, check=False)
+
+
+def test_aws_profile_routes_to_matching_daemon(second_daemon_url):
+    """AWS_PROFILE selects which PAWS_URL/PAWS_TOKEN pair the wrapper uses."""
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = b'{"Account": "222"}'
+    mock.stderr = b""
+    with patch("paws.subprocess.run", return_value=mock) as run_mock:
+        result = _run_wrapper(
+            {
+                "AWS_PROFILE": "acct-b",
+                "PAWS_URL_ACCT_B": second_daemon_url,
+                "PAWS_TOKEN_ACCT_B": "acct-b-token",
+            },
+            "sts",
+            "get-caller-identity",
+        )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == '{"Account": "222"}'
+    run_mock.assert_called_once()
+    assert run_mock.call_args.args[0] == ["aws", "sts", "get-caller-identity"]
+
+
+def test_aws_profile_unconfigured_is_rejected_locally():
+    """An AWS_PROFILE with no matching pair fails before any HTTP call reaches a daemon."""
+    with patch("paws.subprocess.run") as run_mock:
+        result = _run_wrapper({"AWS_PROFILE": "no-such-account"}, "sts", "get-caller-identity")
+    assert result.returncode == 1
+    assert "AWS_PROFILE=no-such-account" in result.stderr
+    run_mock.assert_not_called()
+
+
+def test_aws_profile_wrong_token_is_401(second_daemon_url):
+    """A resolved-but-wrong token for that daemon is still rejected server-side (401)."""
+    result = _run_wrapper(
+        {
+            "AWS_PROFILE": "acct-b",
+            "PAWS_URL_ACCT_B": second_daemon_url,
+            "PAWS_TOKEN_ACCT_B": "wrong-token",
+        },
+        "sts",
+        "get-caller-identity",
+    )
+    assert result.returncode == 1
+    assert "unauthorized" in result.stderr
 
 
 # ── auth ───────────────────────────────────────────────────────────────────────
