@@ -93,9 +93,11 @@ def test_health_no_auth(base_url):
 def test_wrapper_paws_version(base_url):
     """--paws-version prints wrapper and daemon versions (no PAWS_TOKEN required)."""
     wrapper = REPO_ROOT / "wrapper" / "aws"
+    # Force AWS_PROFILE empty to guard against host-shell AWS_PROFILE leakage
+    # affecting wrapper routing.
     result = subprocess.run(
         [str(wrapper), "--paws-version"],
-        env={**os.environ, "PAWS_URL": base_url},
+        env={**os.environ, "PAWS_URL": base_url, "AWS_PROFILE": ""},
         capture_output=True,
         text=True,
         check=False,
