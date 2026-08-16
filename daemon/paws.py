@@ -36,7 +36,7 @@ MAX_STDIN_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 TIMEOUT_SECONDS = 120
 PORT = int(os.environ.get("PAWS_PORT", "7142"))
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 _ARG_RE = re.compile(r"^[A-Za-z0-9:/_\-\.@=,*+%~\[\]{}]+$")
 _BLOCKED_SEQS = ("$(", "..")

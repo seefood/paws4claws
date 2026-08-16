@@ -4,7 +4,7 @@
 # Requires: PAWS_TOKEN env var (or AWS_PROFILE + PAWS_URL_<PROFILE>/
 # PAWS_TOKEN_<PROFILE> for multi-account routing), curl, jq
 
-PAWS_WRAPPER_VERSION="0.4.0"
+PAWS_WRAPPER_VERSION="0.5.0"
 
 # shellcheck source=wrapper/profile_resolve.sh
 _profile_resolve="$(dirname "$0")/profile_resolve.sh"
