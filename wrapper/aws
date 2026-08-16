@@ -1,13 +1,32 @@
 #!/bin/sh
 # Drop-in aws wrapper for PAWS — forwards calls to the credential daemon.
 # Install at /usr/local/bin/aws in agent containers.
-# Requires: PAWS_TOKEN env var, curl, jq
+# Requires: PAWS_TOKEN env var (or AWS_PROFILE + PAWS_URL_<PROFILE>/
+# PAWS_TOKEN_<PROFILE> for multi-account routing), curl, jq
 
-PAWS_URL="${PAWS_URL:-http://paws:7142}"
-PAWS_WRAPPER_VERSION="0.4.0"
+PAWS_WRAPPER_VERSION="0.5.0"
+
+# shellcheck source=wrapper/profile_resolve.sh
+_profile_resolve="$(dirname "$0")/profile_resolve.sh"
+if [ ! -f "$_profile_resolve" ]; then
+	_profile_resolve="/usr/local/lib/paws/profile_resolve.sh"
+fi
+if [ ! -f "$_profile_resolve" ]; then
+	echo "paws: profile_resolve.sh not found (install wrapper/ to /usr/local/lib/paws/)" >&2
+	exit 1
+fi
+# shellcheck source=/dev/null
+. "$_profile_resolve"
 
 if [ "$1" = "--paws-version" ]; then
 	printf 'wrapper: %s\n' "$PAWS_WRAPPER_VERSION"
+	_configured=$(_paws_configured_profiles)
+	if [ -n "$_configured" ]; then
+		printf 'profiles: %s\n' "$_configured"
+	fi
+	if ! resolve_paws_target; then
+		exit 1
+	fi
 	if _health=$(curl -sf "$PAWS_URL/health" 2>/dev/null); then
 		_daemon=$(printf '%s' "$_health" | jq -r '.version // "unknown"')
 		printf 'daemon:  %s\n' "$_daemon"
@@ -18,6 +37,10 @@ if [ "$1" = "--paws-version" ]; then
 		exit 0
 	fi
 	printf 'daemon:  unreachable\n' >&2
+	exit 1
+fi
+
+if ! resolve_paws_target; then
 	exit 1
 fi
 
