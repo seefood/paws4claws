@@ -150,6 +150,7 @@ Copy `wrapper/aws` and `wrapper/file_allowlist.sh` from this repo into the agent
 
 ```dockerfile
 COPY --chmod=755 wrapper/file_allowlist.sh /usr/local/lib/paws/file_allowlist.sh
+COPY --chmod=755 wrapper/profile_resolve.sh /usr/local/lib/paws/profile_resolve.sh
 COPY --chmod=755 wrapper/aws /usr/local/bin/aws
 ```
 
@@ -157,6 +158,7 @@ Or inject it at runtime if you cannot modify the agent image:
 
 ```sh
 docker cp wrapper/file_allowlist.sh <agent-container>:/usr/local/lib/paws/file_allowlist.sh
+docker cp wrapper/profile_resolve.sh <agent-container>:/usr/local/lib/paws/profile_resolve.sh
 docker cp wrapper/aws <agent-container>:/usr/local/bin/aws
 docker exec <agent-container> chmod +x /usr/local/bin/aws
 ```
@@ -176,6 +178,57 @@ docker run -d \
 The wrapper defaults `PAWS_URL` to `http://paws:7142` — Docker's DNS resolves
 `paws` to the daemon container as long as both are on `paws-net` and the daemon
 is named `paws`. Override with `-e PAWS_URL=http://...` if needed.
+
+### Multiple AWS accounts (AWS_PROFILE)
+
+To reach more than one AWS account from the same agent container, run one PAWS
+daemon per account (see step 4) and set `AWS_PROFILE` in the agent before each
+`aws` call. The wrapper maps `AWS_PROFILE=<name>` to the env vars
+`PAWS_URL_<SUFFIX>` / `PAWS_TOKEN_<SUFFIX>`, where `<SUFFIX>` is `<name>`
+uppercased with non-alphanumeric characters replaced by `_` — e.g. `acct-a`
+becomes `ACCT_A`.
+
+There is no default profile. If `AWS_PROFILE` is set but no matching
+`PAWS_URL_<SUFFIX>`/`PAWS_TOKEN_<SUFFIX>` pair is configured, the wrapper fails
+immediately (exit 1, `paws: ...` on stderr) without making any network call.
+If `AWS_PROFILE` is unset, the wrapper falls back to the bare `PAWS_URL`/
+`PAWS_TOKEN` pair — whether that fallback exists is up to you: leave
+`PAWS_URL`/`PAWS_TOKEN` configured on the agent to give it a de facto default
+account, or omit them to force every call to set `AWS_PROFILE` explicitly.
+
+Assuming two daemons `paws-a` and `paws-b` are already running on `paws-net`
+(one per account, per step 4 — each daemon needs its own `--name` (e.g.
+`paws-a`, `paws-b`) since Docker DNS resolves that name on `paws-net`), wire
+the agent to both:
+
+```sh
+docker run -d \
+  --name my-agent \
+  --network paws-net \
+  -e PAWS_URL_ACCT_A=http://paws-a:7142 \
+  -e PAWS_TOKEN_ACCT_A=<token-configured-on-paws-a> \
+  -e PAWS_URL_ACCT_B=http://paws-b:7142 \
+  -e PAWS_TOKEN_ACCT_B=<token-configured-on-paws-b> \
+  my-agent-image
+```
+
+Inside the agent container:
+
+```sh
+AWS_PROFILE=acct-a aws s3 ls   # routed to paws-a
+AWS_PROFILE=acct-b aws s3 ls   # routed to paws-b
+```
+
+> **Naming collision, not a relationship:** `AWS_PROFILE` set on the
+> **daemon** container (see "With an AWS profile" in step 4) selects which
+> profile the daemon's own `~/.aws/config` uses to reach real AWS. It is
+> unrelated to the `AWS_PROFILE` described here, which is set on the **agent**
+> container to pick which daemon to call. The two settings share a name but
+> live on different containers and mean different things.
+
+Run `aws --paws-version` inside the agent to confirm the wiring — it prints a
+`profiles: <SUFFIX1> <SUFFIX2> ...` line listing every configured
+`PAWS_URL_<SUFFIX>` pair (the line is omitted entirely if none are configured).
 
 ______________________________________________________________________
 
