@@ -197,7 +197,9 @@ If `AWS_PROFILE` is unset, the wrapper falls back to the bare `PAWS_URL`/
 account, or omit them to force every call to set `AWS_PROFILE` explicitly.
 
 Assuming two daemons `paws-a` and `paws-b` are already running on `paws-net`
-(one per account, per step 4), wire the agent to both:
+(one per account, per step 4 — each daemon needs its own `--name` (e.g.
+`paws-a`, `paws-b`) since Docker DNS resolves that name on `paws-net`), wire
+the agent to both:
 
 ```sh
 docker run -d \
@@ -226,7 +228,7 @@ AWS_PROFILE=acct-b aws s3 ls   # routed to paws-b
 
 Run `aws --paws-version` inside the agent to confirm the wiring — it prints a
 `profiles: <SUFFIX1> <SUFFIX2> ...` line listing every configured
-`PAWS_URL_<SUFFIX>` pair.
+`PAWS_URL_<SUFFIX>` pair (the line is omitted entirely if none are configured).
 
 ______________________________________________________________________
 
