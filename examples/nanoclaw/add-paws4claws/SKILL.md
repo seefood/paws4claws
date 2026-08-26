@@ -36,18 +36,19 @@ The `aws` command behaves identically to the real CLI — same flags, same exit 
 Pin a release tag once. Use the same tag for the daemon image and wrapper files so versions stay aligned.
 
 ```bash
-export PAWS_TAG=v0.4.0
+export PAWS_TAG=v0.5.0
 export PAWS_RAW="https://raw.githubusercontent.com/seefood/paws4claws/${PAWS_TAG}"
 export PAWS_IMAGE="ghcr.io/seefood/paws4claws:${PAWS_TAG#v}"
 ```
 
-| Artifact               | Location                                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------- |
-| Daemon image           | `${PAWS_IMAGE}` (also `:latest` on GHCR after a release)                                           |
-| Wrapper `aws`          | `${PAWS_RAW}/wrapper/aws`                                                                          |
-| Wrapper allowlist      | `${PAWS_RAW}/wrapper/file_allowlist.sh`                                                            |
-| Agent skill (optional) | `${PAWS_RAW}/examples/nanoclaw/use-paws/SKILL.md`                                                  |
-| Operator skill (this)  | `https://github.com/seefood/paws4claws/blob/${PAWS_TAG}/examples/nanoclaw/add-paws4claws/SKILL.md` |
+| Artifact                | Location                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| Daemon image            | `${PAWS_IMAGE}` (also `:latest` on GHCR after a release)                                           |
+| Wrapper `aws`           | `${PAWS_RAW}/wrapper/aws`                                                                          |
+| Wrapper allowlist       | `${PAWS_RAW}/wrapper/file_allowlist.sh`                                                            |
+| Wrapper profile resolve | `${PAWS_RAW}/wrapper/profile_resolve.sh`                                                           |
+| Agent skill (optional)  | `${PAWS_RAW}/examples/nanoclaw/use-paws/SKILL.md`                                                  |
+| Operator skill (this)   | `https://github.com/seefood/paws4claws/blob/${PAWS_TAG}/examples/nanoclaw/add-paws4claws/SKILL.md` |
 
 No git clone required. If you already have the repo, you may set `PAWS_REPO=~/paws` and use `cp` instead of `wget` — same paths under `wrapper/`.
 
@@ -80,9 +81,9 @@ One token covers all nanoclaw agent containers (or generate one per agent group 
 openssl rand -hex 32
 ```
 
-## 4. Configure both `.env` files
+## 4. Configure both env files
 
-Create a small config directory on the host (no repo clone — only `.env`):
+Create a small config directory on the host (no repo clone — only env files):
 
 ```bash
 mkdir -p ~/paws
@@ -97,11 +98,24 @@ PAWS_TOKEN_NANOCLAW=<token-from-step-3>
 
 Add `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` here instead of the mount if you prefer env-based credentials. For EC2 instance profiles, neither is needed.
 
-**`~/nanoclaw/.env`** — nanoclaw config. This token is injected into agent containers at spawn time:
+**`~/nanoclaw/.env.paws`** — nanoclaw config, a **separate file from `.env`**. Nanoclaw auto-detects this file at the project root: if it exists, it's mounted read-only into every agent container (opaque — nanoclaw never parses it) and the container is joined onto `paws-net`. No `.env` edit, no source change, no manual mount needed.
+
+Single daemon, no profile routing:
 
 ```bash
 PAWS_TOKEN=<same-token-as-above>
 ```
+
+Multiple daemons (e.g. separate AWS accounts) — one `PAWS_URL_<PROFILE>`/`PAWS_TOKEN_<PROFILE>` pair per daemon, where `<PROFILE>` is the uppercased `AWS_PROFILE` value agents will pass (hyphens become underscores, e.g. `acct-a` → `ACCT_A`):
+
+```bash
+PAWS_URL_ACCT_A=http://paws-acct-a:7142
+PAWS_TOKEN_ACCT_A=<token-for-acct-a>
+PAWS_URL_ACCT_B=http://paws-acct-b:7142
+PAWS_TOKEN_ACCT_B=<token-for-acct-b>
+```
+
+Agents then set `AWS_PROFILE=acct-a` (or `acct-b`) before calling `aws` to route to the matching daemon.
 
 ## 5. Run the paws daemon
 
@@ -124,7 +138,7 @@ docker logs paws
 
 ## 6. Choose a wrapper install mode
 
-The PAWS wrapper is **two files** (`wrapper/aws` and `wrapper/file_allowlist.sh`). Fetch them from `${PAWS_RAW}` (see [Source URLs](#source-urls)). Pick **one** mode below.
+The PAWS wrapper is **three files** (`wrapper/aws`, `wrapper/file_allowlist.sh`, `wrapper/profile_resolve.sh`), always colocated. Fetch them from `${PAWS_RAW}` (see [Source URLs](#source-urls)). Pick **one** mode below.
 
 | Mode                | Where files live                             | Rebuild image?      | Upgrade wrapper                            |
 | ------------------- | -------------------------------------------- | ------------------- | ------------------------------------------ |
@@ -132,20 +146,21 @@ The PAWS wrapper is **two files** (`wrapper/aws` and `wrapper/file_allowlist.sh`
 | **B**               | Host dir, bind-mounted read-only at spawn    | No (respawn agents) | Re-`wget` on host; new containers pick up  |
 | **A**               | Baked into the agent image (`COPY`)          | Yes                 | Re-`wget` into `container/`, rebuild image |
 
-The wrapper finds `file_allowlist.sh` next to the `aws` script (`dirname "$0"`), or at `/usr/local/lib/paws/file_allowlist.sh` (mode A layout).
+The wrapper finds `file_allowlist.sh` and `profile_resolve.sh` next to the `aws` script (`dirname "$0"`), or at `/usr/local/lib/paws/` (mode A layout).
 
 ### Mode C — Host `~/bin` (recommended)
 
 **Best for:** simplest install and fastest upgrades. Nanoclaw typically mounts the agent homedir from the host; `~/bin` inside the container is a host directory you can edit without rebuilding or restarting.
 
 1. Ensure the agent image has **`curl`** and **`jq`** (no `awscli`, no wrapper `COPY`).
-1. Download both wrapper files into the agent's **host** `bin` directory (same folder — the path that appears as `~/bin` inside the container):
+1. Download all three wrapper files into the agent's **host** `bin` directory (same folder — the path that appears as `~/bin` inside the container):
 
 ```bash
 AGENT_BIN=~/nanoclaw/data/agents/main/bin   # adjust to your homedir layout
 mkdir -p "$AGENT_BIN"
 wget -q "${PAWS_RAW}/wrapper/aws" -O "$AGENT_BIN/aws"
 wget -q "${PAWS_RAW}/wrapper/file_allowlist.sh" -O "$AGENT_BIN/file_allowlist.sh"
+wget -q "${PAWS_RAW}/wrapper/profile_resolve.sh" -O "$AGENT_BIN/profile_resolve.sh"
 chmod +x "$AGENT_BIN/aws"
 ```
 
@@ -157,28 +172,27 @@ No `container-runner` volume mounts or Dockerfile `COPY` lines are required for 
 
 **Best for:** one canonical wrapper directory on the host, shared across agents, without baking into the image.
 
-1. Install files on the host (both in the same directory):
+1. Install files on the host (all three in the same directory):
 
 ```bash
 mkdir -p ~/paws/wrapper
 wget -q "${PAWS_RAW}/wrapper/aws" -O ~/paws/wrapper/aws
 wget -q "${PAWS_RAW}/wrapper/file_allowlist.sh" -O ~/paws/wrapper/file_allowlist.sh
+wget -q "${PAWS_RAW}/wrapper/profile_resolve.sh" -O ~/paws/wrapper/profile_resolve.sh
 chmod +x ~/paws/wrapper/aws
 ```
 
-1. In **`src/container-runner.ts`**, when `PAWS_TOKEN` is set, add bind mounts to each `docker run` (paths must match inside the container):
+1. Mount the directory into the agent group's containers via `ncl` — no source edit:
 
-```typescript
-// Option 1 — standard layout (matches mode A paths):
-'-v', `${process.env.HOME}/paws/wrapper/aws:/usr/local/bin/aws:ro`,
-'-v', `${process.env.HOME}/paws/wrapper/file_allowlist.sh:/usr/local/lib/paws/file_allowlist.sh:ro`,
-
-// Option 2 — single directory + PATH (both files colocated):
-'-v', `${process.env.HOME}/paws/wrapper:/opt/paws:ro`,
-// and inject: -e PATH=/opt/paws:${existingPath}
+```bash
+ncl groups config add-mount --id <group-id> \
+  --host ~/paws/wrapper --container /opt/paws --ro
+ncl groups restart --id <group-id>
 ```
 
-1. Recompile host TS (`pnpm run build`). **Respawn** agent containers after upgrading wrapper files on the host (no full image rebuild).
+Put `/opt/paws` on `PATH` inside the container (whatever env-injection your container config supports) so `aws` resolves there.
+
+Upgrading later is a re-`wget` into `~/paws/wrapper/` followed by `ncl groups restart --id <group-id>` — no rebuild, no source edit.
 
 ### Mode A — Bake into the agent image (Dockerfile)
 
@@ -189,14 +203,16 @@ chmod +x ~/paws/wrapper/aws
 ```bash
 wget -q "${PAWS_RAW}/wrapper/aws" -O ~/nanoclaw/container/aws
 wget -q "${PAWS_RAW}/wrapper/file_allowlist.sh" -O ~/nanoclaw/container/file_allowlist.sh
+wget -q "${PAWS_RAW}/wrapper/profile_resolve.sh" -O ~/nanoclaw/container/profile_resolve.sh
 chmod +x ~/nanoclaw/container/aws
 ```
 
-1. In **`container/Dockerfile`** (ester2 branch may already have this):
+1. In **`container/Dockerfile`**:
 
 ```dockerfile
 RUN apt-get install -y --no-install-recommends jq curl   # no awscli
 COPY --chmod=755 file_allowlist.sh /usr/local/lib/paws/file_allowlist.sh
+COPY --chmod=755 profile_resolve.sh /usr/local/lib/paws/profile_resolve.sh
 COPY --chmod=755 aws /usr/local/bin/aws
 ```
 
@@ -204,32 +220,27 @@ COPY --chmod=755 aws /usr/local/bin/aws
 
 ## 7. Nanoclaw changes (all modes)
 
-These apply regardless of wrapper install mode. On the `ester2` branch many are already applied.
+None. Nanoclaw auto-detects `~/nanoclaw/.env.paws` (§4) at the project root: if present, it mounts the file read-only into every agent container at `/run/paws/paws.env` and joins the container onto `paws-net` — both handled by nanoclaw's session composition, not a manual `container-runner.ts` edit. Adding, renaming, or removing a PAWS profile is purely an edit to `.env.paws`.
 
-### `src/container-runner.ts`
-
-- Removed the `~/.aws` host mount block
-- When `PAWS_TOKEN` is set in `~/nanoclaw/.env`: add `--network paws-net` and `-e PAWS_TOKEN=…` to agent `docker run`
-- Add **`paws`** to `NO_PROXY` / `no_proxy` alongside `.amazonaws.com` — the OneCLI gateway sets `HTTP_PROXY`, which otherwise intercepts `http://paws:7142`
+`~/paws/wrapper/aws` sources the mounted file into its own short-lived shell before resolving `PAWS_URL`/`PAWS_TOKEN`, so no PAWS credential ever rides as a container-wide env var. No `NO_PROXY`/`no_proxy` configuration is needed either — nanoclaw's OneCLI gateway only ever sets `HTTPS_PROXY`, which does not intercept PAWS's plain-HTTP traffic.
 
 ### Mode-specific extras
 
-| Mode | Dockerfile wrapper `COPY` | container-runner bind mounts |
-| ---- | ------------------------- | ---------------------------- |
-| C    | None                      | None                         |
-| B    | None                      | Yes (§6 mode B)              |
-| A    | Yes (§6 mode A)           | Optional                     |
+| Mode | Dockerfile wrapper `COPY` | Wrapper delivery                          |
+| ---- | ------------------------- | ----------------------------------------- |
+| C    | None                      | Host `~/bin` (already on `PATH`)          |
+| B    | None                      | `ncl groups config add-mount` (§6 mode B) |
+| A    | Yes (§6 mode A)           | Baked into the image                      |
 
 ## 8. Rebuild and restart
 
-| Mode  | When you need a rebuild / restart                                                                               |
-| ----- | --------------------------------------------------------------------------------------------------------------- |
-| **C** | Only when changing agent image deps (`jq`, `curl`) or `container-runner.ts` — **not** for wrapper-only upgrades |
-| **B** | After `container-runner.ts` mount changes: `pnpm run build` + respawn agents                                    |
-| **A** | After any Dockerfile or wrapper change: `cd container && ./build.sh` + restart nanoclaw                         |
+| Mode  | When you need a rebuild / restart                                                        |
+| ----- | ---------------------------------------------------------------------------------------- |
+| **C** | Only when changing agent image deps (`jq`, `curl`) — **not** for wrapper-only upgrades   |
+| **B** | After adding/changing the mount: `ncl groups restart --id <group-id>` — no image rebuild |
+| **A** | After any Dockerfile or wrapper change: `cd container && ./build.sh` + restart nanoclaw  |
 
 ```bash
-pnpm run build            # compile host TS (modes B, A, or runner changes)
 cd container && ./build.sh && cd ..   # mode A only (image rebuild)
 systemctl --user restart "$(. setup/lib/install-slug.sh && systemd_unit)"
 ```
@@ -243,17 +254,15 @@ Use the same **PATH and volume mounts** as production. Replace `nanoclaw-agent-v
 ```bash
 docker run --rm \
   --network paws-net \
-  -e "NO_PROXY=paws,.amazonaws.com,169.254.169.254" \
-  -e "no_proxy=paws,.amazonaws.com,169.254.169.254" \
   nanoclaw-agent-v2-58d885a2:latest \
   aws --paws-version
 # Expected (versions aligned after upgrade):
-#   wrapper: 0.4.0
-#   daemon:  0.4.0
+#   wrapper: 0.5.0
+#   daemon:  0.5.0
 # Exit 1 + stderr if wrapper and daemon differ (version drift).
 ```
 
-For **mode B**, add the same `-v` / `-e PATH=…` flags you use in `container-runner.ts`. For **mode C**, run verify from a **running** agent container (host `~/bin` is mounted there):
+For **mode B**, add the mount you set up with `ncl groups config add-mount` (and its `PATH` injection) to the command above. For **mode C**, run verify from a **running** agent container (host `~/bin` is mounted there):
 
 ```bash
 docker exec <container-name> aws --paws-version
@@ -262,12 +271,10 @@ docker exec <container-name> aws --paws-version
 **Smoke test** (`PAWS_TOKEN` required):
 
 ```bash
-source <(grep '^PAWS_TOKEN=' ~/nanoclaw/.env | tail -1)
+source <(grep '^PAWS_TOKEN=' ~/nanoclaw/.env.paws | tail -1)
 docker run --rm \
   --network paws-net \
   -e "PAWS_TOKEN=$PAWS_TOKEN" \
-  -e "NO_PROXY=paws,.amazonaws.com,169.254.169.254" \
-  -e "no_proxy=paws,.amazonaws.com,169.254.169.254" \
   nanoclaw-agent-v2-58d885a2:latest \
   aws sts get-caller-identity
 ```
@@ -302,7 +309,7 @@ the wrapper requires the skill to be present.
 
 ## 11. Upgrading PAWS
 
-1. Set `PAWS_TAG` to the new release (e.g. `v0.5.0`) and refresh [Source URLs](#source-urls).
+1. Set `PAWS_TAG` to the new release (e.g. `v0.5.1`) and refresh [Source URLs](#source-urls).
 1. Pull the new daemon image and restart the `paws` container:
 
 ```bash
@@ -313,11 +320,11 @@ docker stop paws && docker rm paws
 
 1. Re-fetch the wrapper per mode:
 
-| Mode  | Wrapper upgrade steps                                                                           |
-| ----- | ----------------------------------------------------------------------------------------------- |
-| **C** | Re-run the `wget` lines from §6 mode C into host `~/bin` — **no container restart**             |
-| **B** | Re-run the `wget` lines from §6 mode B into `~/paws/wrapper/` — respawn agent containers        |
-| **A** | Re-run the `wget` lines from §6 mode A into `container/`, rebuild agent image, restart nanoclaw |
+| Mode  | Wrapper upgrade steps                                                                                    |
+| ----- | -------------------------------------------------------------------------------------------------------- |
+| **C** | Re-run the `wget` lines from §6 mode C into host `~/bin` — **no container restart**                      |
+| **B** | Re-run the `wget` lines from §6 mode B into `~/paws/wrapper/`, then `ncl groups restart --id <group-id>` |
+| **A** | Re-run the `wget` lines from §6 mode A into `container/`, rebuild agent image, restart nanoclaw          |
 
 1. Optional: re-`wget` the agent skill (`§10`).
 1. Run `aws --paws-version` to confirm wrapper and daemon match.
@@ -338,28 +345,23 @@ docker stop paws && docker rm paws
 
 1. Both containers on `paws-net`? `docker network inspect paws-net`
 1. Daemon running? `docker ps | grep paws`, `docker logs paws`
-1. **`HTTP_PROXY` intercepting?** — the OneCLI gateway sets `HTTP_PROXY` inside containers. If `NO_PROXY` doesn't include `paws`, every curl to `http://paws:7142` is routed through the OneCLI proxy which rejects it. Confirm `NO_PROXY` contains `paws`:
-   ```bash
-   docker exec <agent-container> bash -c 'echo $NO_PROXY'
-   # should include: paws,...
-   ```
-   If missing, the `container-runner.ts` change wasn't compiled (`pnpm run build` was skipped).
+1. `.env.paws` present at the nanoclaw project root and non-empty? Nanoclaw only mounts and joins `paws-net` when the file exists (§7) — a missing or empty file means the container never got credentials or network access.
 
 ### `unauthorized` on stderr
 
-The `PAWS_TOKEN` in the agent container doesn't match any `PAWS_TOKEN_*` in the daemon. Re-check both `.env` files have the same hex value.
+The `PAWS_TOKEN` (or `PAWS_TOKEN_<PROFILE>`) in `.env.paws` doesn't match any token the daemon knows. Re-check `.env.paws` and the daemon's `~/paws/.env` have the same hex value for that profile.
 
 ### `aws` command not found
 
-| Mode  | Check                                                                                                            |
-| ----- | ---------------------------------------------------------------------------------------------------------------- |
-| **C** | Both files on the **host** `bin` path that mounts as `~/bin`; `which aws` inside the container shows `~/bin/aws` |
-| **B** | Bind mounts present on `docker inspect <container>`; host files exist under `~/paws/wrapper/`                    |
-| **A** | `container/aws` and `container/file_allowlist.sh` present; Dockerfile `COPY` lines present; image rebuilt        |
+| Mode  | Check                                                                                                                                                                 |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **C** | All three files on the **host** `bin` path that mounts as `~/bin`; `which aws` inside the container shows `~/bin/aws`                                                 |
+| **B** | Mount present on `docker inspect <container>` (or `ncl groups config get --id <group-id>`); host files exist under `~/paws/wrapper/`; `PATH` includes the mount point |
+| **A** | `container/aws`, `container/file_allowlist.sh`, `container/profile_resolve.sh` present; Dockerfile `COPY` lines present; image rebuilt                                |
 
-### `paws: file_allowlist.sh not found`
+### `paws: file_allowlist.sh not found` / `paws: profile_resolve.sh not found`
 
-The wrapper could not find its allowlist. **Mode C / B (colocated):** `file_allowlist.sh` must sit in the **same directory** as the `aws` script. **Mode A:** confirm `/usr/local/lib/paws/file_allowlist.sh` exists in the image.
+The wrapper could not find one of its companion scripts. **Mode C / B (colocated):** `file_allowlist.sh` and `profile_resolve.sh` must sit in the **same directory** as the `aws` script. **Mode A:** confirm `/usr/local/lib/paws/file_allowlist.sh` and `/usr/local/lib/paws/profile_resolve.sh` exist in the image.
 
 ### Daemon not persisting across reboots
 
