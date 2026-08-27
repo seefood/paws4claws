@@ -54,9 +54,24 @@ after known flags (`--user-data`, `--payload`, `--value`, `--secret-string`,
 | `paws:`                    | Proxy error — config, network, or unsupported feature |
 | `paws: daemon unreachable` | PAWS container is down or not on `paws-net`           |
 
+## Multiple AWS accounts (AWS_PROFILE)
+
+This container is wired to more than one AWS account. There is **no default
+profile** — set `AWS_PROFILE` before every `aws` call (or export it once per
+shell) or the wrapper fails immediately with a `paws:` error, no network call
+made:
+
+```sh
+AWS_PROFILE=simpleai aws sts get-caller-identity
+AWS_PROFILE=exacto aws s3 ls
+```
+
+Run `aws --paws-version` to see which profiles are wired (`profiles: SIMPLEAI EXACTO` line) and confirm the wrapper/daemon versions match.
+
 ## Environment variables
 
-| Variable     | Required | Default            | Description                                     |
-| ------------ | -------- | ------------------ | ----------------------------------------------- |
-| `PAWS_TOKEN` | ✅       | —                  | Bearer token, injected at container startup     |
-| `PAWS_URL`   | No       | `http://paws:7142` | Daemon address; override for non-default setups |
+| Variable               | Required | Default | Description                                               |
+| ---------------------- | -------- | ------- | --------------------------------------------------------- |
+| `AWS_PROFILE`          | ✅       | —       | Selects which daemon to call — see above                  |
+| `PAWS_URL_<PROFILE>`   | ✅       | —       | Per-profile daemon address, injected at container startup |
+| `PAWS_TOKEN_<PROFILE>` | ✅       | —       | Per-profile bearer token, injected at container startup   |
